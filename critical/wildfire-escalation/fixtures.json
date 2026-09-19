@@ -1,0 +1,32 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 77, "output_tokens": 18},
+    "answers": {
+      "spread_behavior": {
+        "type": "choice", "choice": "extreme", "confidence": 0.91,
+        "probabilities": {"contained": 0.01, "surface": 0.03, "crown": 0.05, "extreme": 0.91}
+      },
+      "threat_level": {
+        "type": "score", "score": 3.8, "confidence": 0.90,
+        "legend": {"0": "minimal", "1": "guarded", "2": "elevated", "3": "severe", "4": "extreme"},
+        "probabilities": {"0": 0.01, "1": 0.01, "2": 0.03, "3": 0.15, "4": 0.80}
+      },
+      "settlement_threat": {"type": "noul", "noul": 0.94}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 77, "output_tokens": 18},
+    "answers": {
+      "spread_behavior": {
+        "type": "choice", "choice": "surface", "confidence": 0.41,
+        "probabilities": {"contained": 0.15, "surface": 0.41, "crown": 0.27, "extreme": 0.17}
+      },
+      "threat_level": {
+        "type": "score", "score": 2.5, "confidence": 0.51,
+        "legend": {"0": "minimal", "1": "guarded", "2": "elevated", "3": "severe", "4": "extreme"},
+        "probabilities": {"0": 0.06, "1": 0.14, "2": 0.31, "3": 0.31, "4": 0.18}
+      },
+      "settlement_threat": {"type": "noul", "noul": 0.59}
+    }
+  }
+}

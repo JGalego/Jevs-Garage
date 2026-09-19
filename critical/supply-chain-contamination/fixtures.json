@@ -1,0 +1,32 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 73, "output_tokens": 18},
+    "answers": {
+      "hazard": {
+        "type": "choice", "choice": "temperature_abuse", "confidence": 0.94,
+        "probabilities": {"microbial": 0.04, "chemical": 0.01, "temperature_abuse": 0.94, "sensor_fault": 0.01}
+      },
+      "severity": {
+        "type": "score", "score": 3.4, "confidence": 0.86,
+        "legend": {"0": "none", "1": "minor", "2": "moderate", "3": "high", "4": "critical"},
+        "probabilities": {"0": 0.01, "1": 0.02, "2": 0.10, "3": 0.34, "4": 0.53}
+      },
+      "lot_affected": {"type": "noul", "noul": 0.93}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 73, "output_tokens": 18},
+    "answers": {
+      "hazard": {
+        "type": "choice", "choice": "sensor_fault", "confidence": 0.41,
+        "probabilities": {"microbial": 0.22, "chemical": 0.08, "temperature_abuse": 0.29, "sensor_fault": 0.41}
+      },
+      "severity": {
+        "type": "score", "score": 2.3, "confidence": 0.50,
+        "legend": {"0": "none", "1": "minor", "2": "moderate", "3": "high", "4": "critical"},
+        "probabilities": {"0": 0.08, "1": 0.17, "2": 0.33, "3": 0.28, "4": 0.14}
+      },
+      "lot_affected": {"type": "noul", "noul": 0.57}
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7",
+    "usage": {"input_tokens": 78, "output_tokens": 19},
+    "answers": {
+      "fault_class": {
+        "type": "choice", "choice": "bearing_failure", "confidence": 0.90,
+        "probabilities": {"bearing_failure": 0.90, "cavitation": 0.06, "sensor_fault": 0.02, "normal_variation": 0.02}
+      },
+      "severity": {
+        "type": "score", "score": 3.5, "confidence": 0.86,
+        "legend": {"0": "normal", "1": "watch", "2": "degraded", "3": "dangerous", "4": "imminent failure"},
+        "probabilities": {"0": 0.01, "1": 0.02, "2": 0.08, "3": 0.28, "4": 0.61}
+      },
+      "unsafe_operation": {"type": "noul", "noul": 0.93}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7",
+    "usage": {"input_tokens": 78, "output_tokens": 19},
+    "answers": {
+      "fault_class": {
+        "type": "choice", "choice": "sensor_fault", "confidence": 0.38,
+        "probabilities": {"bearing_failure": 0.30, "cavitation": 0.22, "sensor_fault": 0.38, "normal_variation": 0.10}
+      },
+      "severity": {
+        "type": "score", "score": 2.3, "confidence": 0.50,
+        "legend": {"0": "normal", "1": "watch", "2": "degraded", "3": "dangerous", "4": "imminent failure"},
+        "probabilities": {"0": 0.08, "1": 0.17, "2": 0.33, "3": 0.28, "4": 0.14}
+      },
+      "unsafe_operation": {"type": "noul", "noul": 0.56}
+    }
+  }
+}
