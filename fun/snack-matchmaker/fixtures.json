@@ -1,0 +1,32 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 53, "output_tokens": 16},
+    "answers": {
+      "flavor": {
+        "type": "choice", "choice": "savory", "confidence": 0.87,
+        "probabilities": {"savory": 0.87, "sweet": 0.03, "tangy": 0.08, "smoky": 0.02}
+      },
+      "adventure": {
+        "type": "score", "score": 2.8, "confidence": 0.82,
+        "legend": {"0": "classic", "1": "familiar", "2": "small twist", "3": "playful", "4": "wild card"},
+        "probabilities": {"0": 0.03, "1": 0.08, "2": 0.27, "3": 0.48, "4": 0.14}
+      },
+      "spice_welcome": {"type": "noul", "noul": 0.86}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 53, "output_tokens": 16},
+    "answers": {
+      "flavor": {
+        "type": "choice", "choice": "tangy", "confidence": 0.31,
+        "probabilities": {"savory": 0.28, "sweet": 0.20, "tangy": 0.31, "smoky": 0.21}
+      },
+      "adventure": {
+        "type": "score", "score": 2.0, "confidence": 0.43,
+        "legend": {"0": "classic", "1": "familiar", "2": "small twist", "3": "playful", "4": "wild card"},
+        "probabilities": {"0": 0.12, "1": 0.22, "2": 0.32, "3": 0.22, "4": 0.12}
+      },
+      "spice_welcome": {"type": "noul", "noul": 0.52}
+    }
+  }
+}

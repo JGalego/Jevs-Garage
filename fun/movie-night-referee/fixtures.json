@@ -1,0 +1,32 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 58, "output_tokens": 16},
+    "answers": {
+      "genre": {
+        "type": "choice", "choice": "mystery", "confidence": 0.78,
+        "probabilities": {"comedy": 0.13, "mystery": 0.78, "adventure": 0.07, "documentary": 0.02}
+      },
+      "intensity": {
+        "type": "score", "score": 2.3, "confidence": 0.75,
+        "legend": {"0": "cozy", "1": "light", "2": "engaging", "3": "tense", "4": "relentless"},
+        "probabilities": {"0": 0.05, "1": 0.16, "2": 0.40, "3": 0.31, "4": 0.08}
+      },
+      "group_fit": {"type": "noul", "noul": 0.88}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 58, "output_tokens": 16},
+    "answers": {
+      "genre": {
+        "type": "choice", "choice": "comedy", "confidence": 0.29,
+        "probabilities": {"comedy": 0.29, "mystery": 0.27, "adventure": 0.24, "documentary": 0.20}
+      },
+      "intensity": {
+        "type": "score", "score": 2.0, "confidence": 0.40,
+        "legend": {"0": "cozy", "1": "light", "2": "engaging", "3": "tense", "4": "relentless"},
+        "probabilities": {"0": 0.14, "1": 0.22, "2": 0.29, "3": 0.22, "4": 0.13}
+      },
+      "group_fit": {"type": "noul", "noul": 0.51}
+    }
+  }
+}
