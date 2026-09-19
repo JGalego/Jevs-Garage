@@ -1,0 +1,54 @@
+[project]
+name = "jevs-garage"
+version = "0.1.0"
+description = "A visual workshop of tiny, typed System One experiments."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "python-dotenv>=1.2.3",
+    "rich>=15.0.0",
+    "typesafe-sdk>=0.7.0",
+]
+
+[project.scripts]
+garage = "jevs_garage.gallery:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.8",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests", "critical", "fun"]
+pythonpath = ["."]
+markers = [
+    "live: calls the real TypeSafe API and requires TYPESAFE_API_KEY",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+include = ["src", "critical", "fun", "tests"]
+
+[tool.coverage.run]
+source = ["src", "critical", "fun"]
+omit = ["*/test_*.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

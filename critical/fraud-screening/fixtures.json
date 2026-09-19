@@ -1,0 +1,42 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7",
+    "usage": {"input_tokens": 74, "output_tokens": 18},
+    "answers": {
+      "risk_band": {
+        "type": "choice",
+        "choice": "high",
+        "confidence": 0.89,
+        "probabilities": {"low": 0.03, "medium": 0.08, "high": 0.89}
+      },
+      "fraud_likelihood": {
+        "type": "score",
+        "score": 3.7,
+        "confidence": 0.88,
+        "legend": {"0": "very unlikely", "1": "unlikely", "2": "unclear", "3": "likely", "4": "very likely"},
+        "probabilities": {"0": 0.01, "1": 0.02, "2": 0.05, "3": 0.18, "4": 0.74}
+      },
+      "identity_anomaly": {"type": "noul", "noul": 0.88}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7",
+    "usage": {"input_tokens": 74, "output_tokens": 18},
+    "answers": {
+      "risk_band": {
+        "type": "choice",
+        "choice": "medium",
+        "confidence": 0.46,
+        "probabilities": {"low": 0.25, "medium": 0.46, "high": 0.29}
+      },
+      "fraud_likelihood": {
+        "type": "score",
+        "score": 2.1,
+        "confidence": 0.52,
+        "legend": {"0": "very unlikely", "1": "unlikely", "2": "unclear", "3": "likely", "4": "very likely"},
+        "probabilities": {"0": 0.08, "1": 0.19, "2": 0.34, "3": 0.27, "4": 0.12}
+      },
+      "identity_anomaly": {"type": "noul", "noul": 0.54}
+    }
+  }
+}
