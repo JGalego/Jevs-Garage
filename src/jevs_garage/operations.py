@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from rich.console import Console, Group
 from rich.json import JSON
@@ -37,6 +37,41 @@ class AuditEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceReceipt:
+    """Provenance and integrity metadata for one live public source."""
+
+    name: str
+    url: str
+    fetched_at: str
+    source_updated_at: str
+    record_count: int
+    content_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ChartPoint:
+    """A compact point usable by bar, line, map, and pipeline visualizations."""
+
+    label: str
+    value: float
+    x: float | None = None
+    y: float | None = None
+    series: str = "value"
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Visualization:
+    """A dependency-free visualization contract consumed by the gallery."""
+
+    kind: Literal["bar", "line", "map", "pipeline"]
+    title: str
+    points: tuple[ChartPoint, ...]
+    x_label: str = ""
+    y_label: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class OperationRun:
     """A complete staged evaluation with controls and a policy decision."""
 
@@ -47,6 +82,8 @@ class OperationRun:
     decision: PolicyDecision
     controls: tuple[str, ...]
     audit: tuple[AuditEvent, ...]
+    sources: tuple[SourceReceipt, ...] = ()
+    visualizations: tuple[Visualization, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.correlation_id:
@@ -93,6 +130,30 @@ def render_operation(*, title: str, state: dict[str, Any], run: OperationRun) ->
         for name, value, confidence in answer_rows(stage.response):
             table.add_row(name.replace("_", " "), value, confidence_meter(confidence))
         console.print(table)
+
+    if run.sources:
+        sources = Table(title="Live source provenance", box=None, expand=True)
+        sources.add_column("Source", style="bold")
+        sources.add_column("Records", justify="right")
+        sources.add_column("Source updated")
+        sources.add_column("SHA-256", style="dim")
+        for source in run.sources:
+            sources.add_row(
+                source.name,
+                str(source.record_count),
+                source.source_updated_at,
+                source.content_sha256[:12],
+            )
+        console.print(sources)
+
+    if run.visualizations:
+        visuals = Table(title="Visualization payloads", box=None, expand=True)
+        visuals.add_column("Kind", style="cyan")
+        visuals.add_column("Title", style="bold")
+        visuals.add_column("Points", justify="right")
+        for visual in run.visualizations:
+            visuals.add_row(visual.kind, visual.title, str(len(visual.points)))
+        console.print(visuals)
 
     status = "SAFE FALLBACK" if run.decision.fallback else "APPROVAL-GATED RECOMMENDATION"
     status_color = "yellow" if run.decision.fallback else "green"

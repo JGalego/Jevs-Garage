@@ -248,6 +248,8 @@ def run_demo(demo_id: str, state: dict[str, Any], root: Path = REPOSITORY_ROOT) 
             "correlation_id": operation.correlation_id,
             "policy_version": operation.policy_version,
             "state_fingerprint": operation.state_fingerprint,
+            "sources": [asdict(source) for source in operation.sources],
+            "visualizations": [asdict(visual) for visual in operation.visualizations],
         }
 
     simple = cast(SimpleDemoModule, module)
@@ -261,6 +263,8 @@ def run_demo(demo_id: str, state: dict[str, Any], root: Path = REPOSITORY_ROOT) 
         "decision": asdict(decision),
         "controls": [],
         "audit": [],
+        "sources": [],
+        "visualizations": [],
     }
 
 

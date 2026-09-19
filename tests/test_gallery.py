@@ -15,11 +15,12 @@ def test_gallery_discovers_every_demo() -> None:
     demos = collect_demos()
     groups = [demo["group"] for demo in demos]
 
-    assert len(demos) == 23
+    assert len(demos) == 24
     assert groups.count("critical") == 12
-    assert groups.count("berserk") == 1
+    assert groups.count("berserk") == 2
     assert groups.count("fun") == 10
     assert sorted(len(demo["questions"]) for demo in demos).count(6) == 1
+    assert sorted(len(demo["questions"]) for demo in demos).count(24) == 1
     assert sorted(len(demo["questions"]) for demo in demos).count(3) == 22
     assert all("signals" not in demo and "decision" not in demo for demo in demos)
 
@@ -42,7 +43,7 @@ def test_gallery_shell_and_api_are_served() -> None:
 
     assert html == INDEX_HTML
     assert "Jev's Garage" in html
-    assert len(demos) == 23
+    assert len(demos) == 24
     assert "Berserk" in html
     assert demos[0]["questions"][0]["type"] in {"choice", "score", "noul"}
 
