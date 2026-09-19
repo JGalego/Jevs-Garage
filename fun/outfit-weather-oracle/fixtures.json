@@ -1,0 +1,32 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 59, "output_tokens": 16},
+    "answers": {
+      "outer_layer": {
+        "type": "choice", "choice": "shell", "confidence": 0.88,
+        "probabilities": {"shell": 0.88, "denim": 0.05, "overshirt": 0.05, "none": 0.02}
+      },
+      "warmth": {
+        "type": "score", "score": 2.2, "confidence": 0.78,
+        "legend": {"0": "very light", "1": "light", "2": "layered", "3": "warm", "4": "winter"},
+        "probabilities": {"0": 0.06, "1": 0.20, "2": 0.42, "3": 0.25, "4": 0.07}
+      },
+      "rain_ready": {"type": "noul", "noul": 0.87}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 59, "output_tokens": 16},
+    "answers": {
+      "outer_layer": {
+        "type": "choice", "choice": "overshirt", "confidence": 0.30,
+        "probabilities": {"shell": 0.27, "denim": 0.22, "overshirt": 0.30, "none": 0.21}
+      },
+      "warmth": {
+        "type": "score", "score": 1.9, "confidence": 0.42,
+        "legend": {"0": "very light", "1": "light", "2": "layered", "3": "warm", "4": "winter"},
+        "probabilities": {"0": 0.16, "1": 0.27, "2": 0.29, "3": 0.18, "4": 0.10}
+      },
+      "rain_ready": {"type": "noul", "noul": 0.54}
+    }
+  }
+}

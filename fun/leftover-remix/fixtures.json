@@ -1,0 +1,32 @@
+{
+  "confident": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 55, "output_tokens": 16},
+    "answers": {
+      "dish": {
+        "type": "choice", "choice": "hash", "confidence": 0.86,
+        "probabilities": {"hash": 0.86, "frittata": 0.08, "flatbread": 0.04, "salad": 0.02}
+      },
+      "ambition": {
+        "type": "score", "score": 1.7, "confidence": 0.77,
+        "legend": {"0": "assemble", "1": "one pan", "2": "easy cook", "3": "project", "4": "showpiece"},
+        "probabilities": {"0": 0.08, "1": 0.34, "2": 0.43, "3": 0.12, "4": 0.03}
+      },
+      "crispy": {"type": "noul", "noul": 0.89}
+    }
+  },
+  "uncertain": {
+    "model": "jev-fixture-0.7", "usage": {"input_tokens": 55, "output_tokens": 16},
+    "answers": {
+      "dish": {
+        "type": "choice", "choice": "frittata", "confidence": 0.29,
+        "probabilities": {"hash": 0.27, "frittata": 0.29, "flatbread": 0.24, "salad": 0.20}
+      },
+      "ambition": {
+        "type": "score", "score": 1.9, "confidence": 0.41,
+        "legend": {"0": "assemble", "1": "one pan", "2": "easy cook", "3": "project", "4": "showpiece"},
+        "probabilities": {"0": 0.16, "1": 0.26, "2": 0.29, "3": 0.19, "4": 0.10}
+      },
+      "crispy": {"type": "noul", "noul": 0.51}
+    }
+  }
+}
