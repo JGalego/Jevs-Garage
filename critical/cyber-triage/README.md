@@ -2,7 +2,14 @@
 
 A security operations center needs to sort noisy endpoint alerts without letting a classifier isolate machines on its own. Jev estimates incident class, severity, and compromise probability; policy turns strong agreement into an operator recommendation and routes ambiguity to an analyst.
 
-`state -> Jev -> Choice + Score + Noul -> SOC policy -> recommendation or analyst fallback`
+```mermaid
+flowchart LR
+	state["State<br/>Endpoint alert"] --> jev["Jev"]
+	jev --> typed["Typed result<br/>Choice + Score + Noul"]
+	typed --> policy["Deterministic policy<br/>SOC thresholds"]
+	policy -->|Confident| action["Operator recommendation<br/>Investigate or contain"]
+	policy -->|Uncertain| fallback["Safe fallback<br/>SOC analyst"]
+```
 
 ```bash
 uv run python critical/cyber-triage/demo.py
