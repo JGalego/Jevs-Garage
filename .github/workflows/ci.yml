@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Python 3.11 quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.7.21"
+          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync locked environment
+        run: uv sync --locked --all-groups
+
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Type check
+        run: uv run pyright
+
+      - name: Run offline tests
+        run: uv run pytest -m "not live" --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: error
