@@ -7,7 +7,7 @@
 
 A workshop full of small, inspectable experiments for [TypeSafe](https://typesafe.ai/) System One models. Each bay gives Jev a realistic state, asks typed questions, and lets ordinary Python policy decide what happens next.
 
-![The Jev's Garage local gallery showing live-on-demand demo bays](docs/gallery.png)
+![The Jev's Garage gallery: browse bays, edit validated JSON, and inspect live value-colored results](docs/gallery.gif)
 
 ## System One, Briefly
 
@@ -35,7 +35,7 @@ cp .env.example .env
 just gallery
 ```
 
-The gallery opens locally, displays every state and question contract, and calls Jev only when you press **Run Jev**. If port `8000` is occupied it tries the next available port; use `just gallery --no-browser --port 8080` to choose explicitly.
+The gallery opens locally with an editable **Run input** JSON document for every bay. It validates JSON syntax, required fields, nested shape, and value types before enabling **Run Jev**, then revalidates on the server before the live call. Result colors move from red through amber to green with signal certainty. If port `8000` is occupied it tries the next available port; use `just gallery --no-browser --port 8080` to choose explicitly.
 
 ## Critical 🔴
 

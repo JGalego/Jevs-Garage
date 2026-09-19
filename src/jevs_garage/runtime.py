@@ -120,7 +120,7 @@ def render_demo(
         )
     )
     console.print("[dim]STATE[/dim] -> [bold cyan]JEV[/bold cyan] -> TYPED RESULT -> POLICY -> ACTION / FALLBACK")
-    console.print(Panel(JSON.from_data(state), title="Sample state", border_style="bright_black"))
+    console.print(Panel(JSON.from_data(state), title="Run input", border_style="bright_black"))
 
     signals = Table(title=f"Jev signals / {response.model}", box=None, expand=True)
     signals.add_column("Question", style="bold")

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from typesafe_sdk import Choice, Noul, Questions, Score, TypeSafeClient
 
@@ -160,14 +162,15 @@ def decide(assessment: PaymentAssessment) -> PolicyDecision:
     )
 
 
-def execute() -> OperationRun:
+def execute(state: dict[str, Any] | None = None) -> OperationRun:
     require_live_api_key()
-    fingerprint = state_fingerprint(STATE)
+    snapshot = deepcopy(STATE if state is None else state)
+    fingerprint = state_fingerprint(snapshot)
     with TypeSafeClient(timeout=30) as client:
-        situation_response = client.system_one(state=STATE, questions=SITUATION_QUESTIONS)
+        situation_response = client.system_one(state=snapshot, questions=SITUATION_QUESTIONS)
         situation = signals_from_response(situation_response, SITUATION_SIGNALS)
         intervention_state = {
-            "incident_snapshot": STATE,
+            "incident_snapshot": snapshot,
             "snapshot_fingerprint": fingerprint,
             "stage_one": asdict(situation),
             "allowed_actions": list(INTERVENTIONS),
@@ -182,7 +185,7 @@ def execute() -> OperationRun:
 
     decision = decide(PaymentAssessment(situation=situation, intervention=intervention))
     return OperationRun(
-        correlation_id=STATE["incident_id"],
+        correlation_id=str(snapshot["incident_id"]),
         policy_version=POLICY_VERSION,
         state_fingerprint=fingerprint,
         stages=(
@@ -202,7 +205,7 @@ def execute() -> OperationRun:
             "Only reversible runbook actions may pass the policy gate.",
         ),
         audit=(
-            AuditEvent(1, "snapshot.accepted", f"version=17 fingerprint={fingerprint}"),
+            AuditEvent(1, "snapshot.accepted", f"version={snapshot['state_version']} fingerprint={fingerprint}"),
             AuditEvent(2, "jev.situation.completed", f"model={situation_response.model}"),
             AuditEvent(3, "jev.intervention.completed", f"model={intervention_response.model}"),
             AuditEvent(4, "policy.evaluated", f"version={POLICY_VERSION} fallback={decision.fallback}"),

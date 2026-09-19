@@ -19,13 +19,30 @@ from types import ModuleType
 from typing import Any, Protocol, cast
 from urllib.parse import unquote, urlsplit
 
-from typesafe_sdk import ChoiceAnswer, NoulAnswer, Questions, ScoreAnswer, SystemOneResponse, TypeSafeError
+from typesafe_sdk import (
+    ChoiceAnswer,
+    NoulAnswer,
+    Questions,
+    ScoreAnswer,
+    SystemOneResponse,
+    TypeSafeClient,
+    TypeSafeError,
+)
 
 from jevs_garage.operations import OperationRun
-from jevs_garage.runtime import JevSignals, PolicyDecision, SignalNames, signals_from_response
+from jevs_garage.runtime import JevSignals, PolicyDecision, SignalNames, require_live_api_key, signals_from_response
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 GROUPS = ("critical", "berserk", "fun")
+MAX_INPUT_BYTES = 128_000
+
+
+class InputPayloadError(ValueError):
+    """A client input error carrying its HTTP response status."""
+
+    def __init__(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class DemoModule(Protocol):
@@ -51,7 +68,7 @@ class StagedDemoModule(DemoModule, Protocol):
 
     QUESTION_SETS: dict[str, Questions]
 
-    def execute(self) -> OperationRun: ...
+    def execute(self, state: dict[str, Any] | None = None) -> OperationRun: ...
 
 
 def discover_demo_paths(root: Path = REPOSITORY_ROOT) -> list[tuple[str, Path]]:
@@ -89,6 +106,52 @@ def _question_sets(module: DemoModule) -> dict[str, Questions]:
         return cast(dict[str, Questions], staged)
     simple = cast(SimpleDemoModule, module)
     return {"decision": simple.QUESTIONS}
+
+
+def _same_json_type(value: Any, template: Any) -> bool:
+    if isinstance(template, bool):
+        return isinstance(value, bool)
+    if isinstance(template, int | float):
+        return isinstance(value, int | float) and not isinstance(value, bool)
+    return type(value) is type(template)
+
+
+def _validate_shape(value: Any, template: Any, path: str, errors: list[str]) -> None:
+    if not _same_json_type(value, template):
+        errors.append(f"{path}: expected {type(template).__name__}, got {type(value).__name__}")
+        return
+    if isinstance(template, dict):
+        value_keys = set(value)
+        template_keys = set(template)
+        for key in sorted(template_keys - value_keys):
+            errors.append(f"{path}.{key}: required field is missing")
+        for key in sorted(value_keys - template_keys):
+            errors.append(f"{path}.{key}: unknown field")
+        for key in sorted(template_keys & value_keys):
+            _validate_shape(value[key], template[key], f"{path}.{key}", errors)
+    elif isinstance(template, list):
+        if template and value:
+            if len(template) == len(value):
+                for index, (item, exemplar) in enumerate(zip(value, template, strict=True)):
+                    _validate_shape(item, exemplar, f"{path}[{index}]", errors)
+            elif all(_same_json_type(item, template[0]) for item in template):
+                for index, item in enumerate(value):
+                    _validate_shape(item, template[0], f"{path}[{index}]", errors)
+            else:
+                errors.append(f"{path}: expected {len(template)} heterogeneous items, got {len(value)}")
+
+
+def validate_demo_state(demo_id: str, state: Any, root: Path = REPOSITORY_ROOT) -> list[str]:
+    """Validate edited JSON against a demo's canonical state shape."""
+
+    paths = {f"{group}/{path.parent.name}": (group, path) for group, path in discover_demo_paths(root)}
+    if demo_id not in paths:
+        raise KeyError(demo_id)
+    group, path = paths[demo_id]
+    module = _load_demo(group, path)
+    errors: list[str] = []
+    _validate_shape(state, module.STATE, "$", errors)
+    return errors
 
 
 def _signal_payload(name: str, answer: ChoiceAnswer | ScoreAnswer | NoulAnswer) -> dict[str, Any]:
@@ -156,17 +219,20 @@ def collect_demos(root: Path = REPOSITORY_ROOT) -> list[dict[str, Any]]:
     return demos
 
 
-def run_demo(demo_id: str, root: Path = REPOSITORY_ROOT) -> dict[str, Any]:
+def run_demo(demo_id: str, state: dict[str, Any], root: Path = REPOSITORY_ROOT) -> dict[str, Any]:
     """Run one named demo against Jev and apply its deterministic policy."""
 
     paths = {f"{group}/{path.parent.name}": (group, path) for group, path in discover_demo_paths(root)}
     if demo_id not in paths:
         raise KeyError(demo_id)
+    errors = validate_demo_state(demo_id, state, root)
+    if errors:
+        raise ValueError("; ".join(errors))
     group, path = paths[demo_id]
     module = _load_demo(group, path)
     if hasattr(module, "execute"):
         staged = cast(StagedDemoModule, module)
-        operation = staged.execute()
+        operation = staged.execute(state)
         models = list(dict.fromkeys(stage.response.model for stage in operation.stages))
         signals = [
             _signal_payload(f"{stage.key} / {name}", answer)
@@ -185,7 +251,9 @@ def run_demo(demo_id: str, root: Path = REPOSITORY_ROOT) -> dict[str, Any]:
         }
 
     simple = cast(SimpleDemoModule, module)
-    response = simple.evaluate()
+    require_live_api_key()
+    with TypeSafeClient(timeout=30) as client:
+        response = client.system_one(state=state, questions=simple.QUESTIONS)
     decision = simple.decide(signals_from_response(response, simple.SIGNALS))
     return {
         "model": response.model,
@@ -308,9 +376,7 @@ INDEX_HTML = r"""<!doctype html>
     .card-body { padding-top: 13px; color: #494a45; font-size: 13px; line-height: 1.55; }
     .card-foot { padding-top: 15px; padding-bottom: 17px; display: grid; gap: 10px; }
     .meter { height: 8px; border: 1px solid var(--ink); background: #ddd8cc; }
-    .meter > span { display: block; height: 100%; background: var(--critical); }
-    .berserk .meter > span { background: var(--berserk); }
-    .fun .meter > span { background: var(--fun); }
+    .meter > span { display: block; height: 100%; background: var(--blue); transition: width 220ms ease, background-color 220ms ease; }
     .outcome { font: 700 12px/1.35 "DejaVu Sans Mono", monospace; }
     .outcome.fallback { color: #8b5c00; }
     dialog {
@@ -332,6 +398,24 @@ INDEX_HTML = r"""<!doctype html>
     .detail { padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .85fr); gap: 24px; }
     .section-title { margin: 0 0 10px; font: 800 12px/1 "DejaVu Sans Mono", monospace; text-transform: uppercase; color: var(--muted); }
     pre { margin: 0; max-height: 310px; overflow: auto; padding: 16px; background: #272a26; color: #f7f2e8; font: 12px/1.55 "DejaVu Sans Mono", monospace; }
+    .editor-shell { display: grid; min-width: 0; }
+    .input-editor, .input-highlight { grid-area: 1 / 1; width: 100%; min-height: 390px; margin: 0; padding: 16px; border: 2px solid var(--ink); border-radius: 0; font: 12px/1.55 "DejaVu Sans Mono", monospace; tab-size: 2; white-space: pre; overflow-wrap: normal; overflow: auto; }
+    .input-highlight { pointer-events: none; background: #272a26; color: #f7f2e8; scrollbar-width: none; }
+    .input-highlight::-webkit-scrollbar { display: none; }
+    .input-editor { z-index: 1; resize: vertical; background: transparent; color: transparent; caret-color: var(--yellow); -webkit-text-fill-color: transparent; }
+    .input-editor::selection { background: rgba(54, 116, 187, .42); }
+    .input-editor:focus { outline: 3px solid var(--blue); outline-offset: 2px; }
+    .json-key { color: #7fc7ff; }
+    .json-string { color: #b9df8a; }
+    .json-number { color: #ffc66d; }
+    .json-boolean { color: #e9a7ff; font-weight: 800; }
+    .json-null { color: #9a9f98; font-style: italic; }
+    .input-tools { display: flex; align-items: center; gap: 9px; margin-top: 10px; flex-wrap: wrap; }
+    .input-tools button { padding: 7px 10px; border: 2px solid var(--ink); background: var(--panel); cursor: pointer; font-weight: 800; }
+    .input-status { margin-left: auto; font: 700 12px/1.35 "DejaVu Sans Mono", monospace; }
+    .input-status.pending { color: #8b5c00; }
+    .input-status.valid { color: #13715d; }
+    .input-status.invalid { color: #b52d24; }
     .signal-list { display: grid; gap: 15px; }
     .signal-row { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
     .signal-top { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
@@ -389,12 +473,23 @@ INDEX_HTML = r"""<!doctype html>
       <button id="close" class="close" type="button" aria-label="Close details" title="Close">&times;</button>
     </div>
     <div class="detail">
-      <section><h3 class="section-title">Sample state</h3><pre id="detail-state"></pre></section>
+      <section>
+        <h3 class="section-title">Run input</h3>
+        <div class="editor-shell">
+          <pre id="input-highlight" class="input-highlight" aria-hidden="true"></pre>
+          <textarea id="detail-state" class="input-editor" aria-label="Editable JSON run input" spellcheck="false" wrap="off"></textarea>
+        </div>
+        <div class="input-tools">
+          <button id="format-input" type="button">Format JSON</button>
+          <button id="reset-input" type="button">Reset</button>
+          <span id="input-status" class="input-status pending" role="status">Checking input...</span>
+        </div>
+      </section>
       <section><h3 id="signals-heading" class="section-title">Question contract</h3><div id="detail-signals" class="signal-list"></div></section>
       <section id="detail-policy" class="policy" hidden><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
       <section id="detail-controls" class="operation-record" hidden><h3 class="section-title">Non-negotiable controls</h3><ul id="control-list"></ul></section>
       <section id="detail-audit" class="operation-record" hidden><h3 class="section-title">Operation audit</h3><pre id="audit-log"></pre></section>
-      <div class="run-area"><button id="run" class="run-button" type="button">Run Jev</button><p id="run-status" class="run-status">Uses TYPESAFE_API_KEY on this machine.</p></div>
+      <div class="run-area"><button id="run" class="run-button" type="button" disabled>Run Jev</button><p id="run-status" class="run-status">Input must pass validation before a live call.</p></div>
       <div id="detail-command" class="command"></div>
     </div>
   </dialog>
@@ -407,8 +502,13 @@ INDEX_HTML = r"""<!doctype html>
     const policy = document.querySelector("#detail-policy");
     const controlsPanel = document.querySelector("#detail-controls");
     const auditPanel = document.querySelector("#detail-audit");
+    const inputEditor = document.querySelector("#detail-state");
+    const inputHighlight = document.querySelector("#input-highlight");
+    const inputStatus = document.querySelector("#input-status");
     const runButton = document.querySelector("#run");
     const runStatus = document.querySelector("#run-status");
+    let validationTimer;
+    let validationVersion = 0;
 
     function element(tag, className, text) {
       const node = document.createElement(tag);
@@ -418,6 +518,39 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     function percent(value) { return `${Math.round(value * 100)}%`; }
+
+    function confidenceColor(value) {
+      const bounded = Math.max(0, Math.min(value, 1));
+      const hue = Math.round(4 + bounded * 126);
+      return `hsl(${hue} 72% 38%)`;
+    }
+
+    function setInputStatus(kind, message) {
+      inputStatus.className = `input-status ${kind}`;
+      inputStatus.textContent = message;
+    }
+
+    function renderJsonHighlight() {
+      const source = inputEditor.value;
+      const pattern = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+      const fragment = document.createDocumentFragment();
+      let cursor = 0;
+      for (const match of source.matchAll(pattern)) {
+        fragment.append(document.createTextNode(source.slice(cursor, match.index)));
+        const token = document.createElement("span");
+        if (match[1]) token.className = match[2] ? "json-key" : "json-string";
+        else if (match[3] === "null") token.className = "json-null";
+        else if (match[3]) token.className = "json-boolean";
+        else token.className = "json-number";
+        token.textContent = match[0];
+        fragment.append(token);
+        cursor = match.index + match[0].length;
+      }
+      fragment.append(document.createTextNode(source.slice(cursor) + "\n"));
+      inputHighlight.replaceChildren(fragment);
+      inputHighlight.scrollTop = inputEditor.scrollTop;
+      inputHighlight.scrollLeft = inputEditor.scrollLeft;
+    }
 
     function setPressed(selector, attribute, value) {
       document.querySelectorAll(selector).forEach((button) => {
@@ -447,8 +580,12 @@ INDEX_HTML = r"""<!doctype html>
         const meter = element("div", "meter");
         const fill = element("span");
         fill.style.width = percent(signal.certainty);
+        fill.style.backgroundColor = confidenceColor(signal.certainty);
+        meter.title = `Certainty: ${percent(signal.certainty)}`;
         meter.append(fill);
-        row.append(top, element("div", "signal-value", signal.value), meter);
+        const value = element("div", "signal-value", signal.value);
+        value.style.color = confidenceColor(signal.certainty);
+        row.append(top, value, meter);
         signals.append(row);
       });
       document.querySelector("#detail-action").textContent = result.decision.action;
@@ -470,30 +607,78 @@ INDEX_HTML = r"""<!doctype html>
 
     function openDetail(demo) {
       view.current = demo;
+      view.validatedState = null;
       document.querySelector("#detail-group").textContent = demo.group;
       document.querySelector("#detail-title").textContent = demo.title;
-      document.querySelector("#detail-state").textContent = JSON.stringify(demo.state, null, 2);
+      inputEditor.value = JSON.stringify(demo.state, null, 2);
+      renderJsonHighlight();
       document.querySelector("#detail-command").textContent = demo.command;
       document.querySelector("#signals-heading").textContent = "Question contract";
       renderQuestions(demo.questions);
       policy.hidden = true;
       controlsPanel.hidden = true;
       auditPanel.hidden = true;
-      runButton.disabled = false;
+      runButton.disabled = true;
       runButton.textContent = demo.stage_count > 1 ? `Run ${demo.stage_count} Jev stages` : "Run Jev";
-      runStatus.textContent = demo.stage_count > 1
-        ? "Runs a staged, live evaluation. No operational credentials are available."
-        : "Uses TYPESAFE_API_KEY on this machine.";
+      runStatus.textContent = "Input must pass validation before a live call.";
       detail.showModal();
+      validateInput();
+    }
+
+    async function validateInput() {
+      const version = ++validationVersion;
+      runButton.disabled = true;
+      view.validatedState = null;
+      let state;
+      try {
+        state = JSON.parse(inputEditor.value);
+      } catch (error) {
+        setInputStatus("invalid", `Invalid JSON: ${error.message}`);
+        return false;
+      }
+      if (!state || Array.isArray(state) || typeof state !== "object") {
+        setInputStatus("invalid", "Run input must be a JSON object.");
+        return false;
+      }
+      setInputStatus("pending", "Checking shape...");
+      try {
+        const response = await fetch(`/api/demos/${view.current.id}/validate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state }),
+        });
+        const payload = await response.json();
+        if (version !== validationVersion) return false;
+        if (!response.ok || !payload.valid) {
+          const details = payload.errors?.join("; ") || payload.error || `HTTP ${response.status}`;
+          setInputStatus("invalid", details);
+          return false;
+        }
+        view.validatedState = state;
+        runButton.disabled = false;
+        setInputStatus("valid", `Valid input / ${payload.bytes} bytes`);
+        runStatus.textContent = view.current.stage_count > 1
+          ? "Ready for staged live evaluation; no operational credentials are available."
+          : "Ready for a live TypeSafe call.";
+        return true;
+      } catch (error) {
+        if (version === validationVersion) setInputStatus("invalid", `Validation failed: ${error.message}`);
+        return false;
+      }
     }
 
     async function runLive() {
       if (!view.current) return;
+      if (!view.validatedState && !(await validateInput())) return;
       runButton.disabled = true;
       runButton.textContent = "Calling Jev...";
       runStatus.textContent = "Waiting for a live TypeSafe response.";
       try {
-        const response = await fetch(`/api/demos/${view.current.id}`, { method: "POST" });
+        const response = await fetch(`/api/demos/${view.current.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ state: view.validatedState }),
+        });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
         renderResult(payload);
@@ -548,6 +733,33 @@ INDEX_HTML = r"""<!doctype html>
       setPressed("[data-group]", "group", view.group);
       render();
     }));
+    inputEditor.addEventListener("input", () => {
+      clearTimeout(validationTimer);
+      renderJsonHighlight();
+      runButton.disabled = true;
+      view.validatedState = null;
+      setInputStatus("pending", "Input changed / checking...");
+      validationTimer = setTimeout(validateInput, 350);
+    });
+    inputEditor.addEventListener("scroll", () => {
+      inputHighlight.scrollTop = inputEditor.scrollTop;
+      inputHighlight.scrollLeft = inputEditor.scrollLeft;
+    });
+    document.querySelector("#format-input").addEventListener("click", () => {
+      try {
+        inputEditor.value = JSON.stringify(JSON.parse(inputEditor.value), null, 2);
+        renderJsonHighlight();
+        validateInput();
+      } catch (error) {
+        setInputStatus("invalid", `Invalid JSON: ${error.message}`);
+      }
+    });
+    document.querySelector("#reset-input").addEventListener("click", () => {
+      if (!view.current) return;
+      inputEditor.value = JSON.stringify(view.current.state, null, 2);
+      renderJsonHighlight();
+      validateInput();
+    });
     runButton.addEventListener("click", runLive);
     document.querySelector("#close").addEventListener("click", () => detail.close());
     detail.addEventListener("click", (event) => { if (event.target === detail) detail.close(); });
@@ -583,6 +795,33 @@ class GalleryHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_state(self) -> tuple[dict[str, Any], int]:
+        content_type = self.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+        if content_type != "application/json":
+            raise InputPayloadError("Content-Type must be application/json")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            raise InputPayloadError("Content-Length must be an integer") from error
+        if length <= 0:
+            raise InputPayloadError("A JSON request body is required")
+        if length > MAX_INPUT_BYTES:
+            raise InputPayloadError(
+                f"Request exceeds the {MAX_INPUT_BYTES}-byte limit",
+                HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            )
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise InputPayloadError(f"Invalid JSON: {error}") from error
+        if not isinstance(payload, dict) or set(payload) != {"state"}:
+            raise InputPayloadError("Request body must be an object containing only 'state'")
+        state = payload["state"]
+        if not isinstance(state, dict):
+            raise InputPayloadError("state must be a JSON object")
+        state_bytes = len(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode())
+        return state, state_bytes
+
     def do_GET(self) -> None:  # noqa: N802
         request = urlsplit(self.path)
         if request.path == "/":
@@ -605,13 +844,33 @@ class GalleryHandler(BaseHTTPRequestHandler):
             self._write(HTTPStatus.NOT_FOUND, b'{"error":"not found"}', "application/json")
             return
 
-        demo_id = unquote(request.path.removeprefix(prefix)).strip("/")
+        relative_path = unquote(request.path.removeprefix(prefix)).strip("/")
+        validate_only = relative_path.endswith("/validate")
+        demo_id = relative_path.removesuffix("/validate") if validate_only else relative_path
         root = cast(GalleryServer, self.server).gallery_root
         try:
-            payload = run_demo(demo_id, root)
+            state, state_bytes = self._read_state()
+        except InputPayloadError as error:
+            body = json.dumps({"error": str(error)}).encode()
+            self._write(error.status, body, "application/json")
+            return
+
+        try:
+            errors = validate_demo_state(demo_id, state, root)
         except KeyError:
             self._write(HTTPStatus.NOT_FOUND, b'{"error":"unknown demo"}', "application/json")
             return
+        if validate_only:
+            body = json.dumps({"valid": not errors, "errors": errors, "bytes": state_bytes}).encode()
+            self._write(HTTPStatus.OK, body, "application/json")
+            return
+        if errors:
+            body = json.dumps({"error": "Input shape is invalid", "errors": errors}).encode()
+            self._write(HTTPStatus.UNPROCESSABLE_ENTITY, body, "application/json")
+            return
+
+        try:
+            payload = run_demo(demo_id, state, root)
         except SystemExit as error:
             body = json.dumps({"error": str(error)}).encode()
             self._write(HTTPStatus.SERVICE_UNAVAILABLE, body, "application/json")
