@@ -401,7 +401,9 @@ def _visualizations(
                 x=float(
                     3 + ("city_b" in stage.key)
                     if stage.key.startswith("forecast-")
-                    else index if index < 3 else index - 14
+                    else index
+                    if index < 3
+                    else index - 14
                 ),
                 y=float((index - 3) % 8) if stage.key.startswith("forecast-") else 3.5,
                 series="city_b" if "city_b" in stage.key else "judgment",

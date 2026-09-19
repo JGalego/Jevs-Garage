@@ -73,7 +73,13 @@ def forbid_live_access(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_all_23_questions_have_typed_contracts_and_unique_progress_keys() -> None:
     expected = {
-        "blind", "experiment", "posterior", "causal-critic", "safety-critic", "recommendation", "order-challenge",
+        "blind",
+        "experiment",
+        "posterior",
+        "causal-critic",
+        "safety-critic",
+        "recommendation",
+        "order-challenge",
         *(f"forecast-{city}-{item.key}" for city in DEMO.CITIES for item in DEMO.INTERVENTIONS),
     }
     assert DEMO.MAX_CALLS == len(DEMO.QUESTION_SETS) == len(expected) == 23
@@ -226,8 +232,7 @@ def test_informative_probes_separate_twins(demand: int, city: str, probe: str) -
 
 def test_cheapest_separating_probe_and_missing_or_inconsistent_measurements() -> None:
     separating = [
-        key for key in DEMO.PROBES
-        if DEMO.probe_value("city_a", 4000, key) != DEMO.probe_value("city_b", 4000, key)
+        key for key in DEMO.PROBES if DEMO.probe_value("city_a", 4000, key) != DEMO.probe_value("city_b", 4000, key)
     ]
     assert min(separating, key=lambda key: DEMO.PROBES[key]["cost"]) == "inspect_outer"
     assert DEMO.PROBES["inspect_outer"]["cost"] == 1
@@ -242,10 +247,17 @@ def test_cheapest_separating_probe_and_missing_or_inconsistent_measurements() ->
 @pytest.mark.parametrize(
     ("budget", "city_a_key", "robust_key"),
     [
-        (0, "keep", "keep"), (1, "close", "keep"), (24, "close", "keep"),
-        (25, "keep_125", "keep_125"), (26, "close_125", "keep_125"), (49, "close_125", "keep_125"),
-        (50, "keep_150", "keep_150"), (51, "keep_150", "keep_150"), (99, "keep_150", "keep_150"),
-        (100, "keep_200", "keep_200"), (101, "keep_200", "keep_200"),
+        (0, "keep", "keep"),
+        (1, "close", "keep"),
+        (24, "close", "keep"),
+        (25, "keep_125", "keep_125"),
+        (26, "close_125", "keep_125"),
+        (49, "close_125", "keep_125"),
+        (50, "keep_150", "keep_150"),
+        (51, "keep_150", "keep_150"),
+        (99, "keep_150", "keep_150"),
+        (100, "keep_200", "keep_200"),
+        (101, "keep_200", "keep_200"),
     ],
 )
 def test_default_minimax_candidates_at_every_cost_boundary(budget: int, city_a_key: str, robust_key: str) -> None:
@@ -373,8 +385,12 @@ def test_validation_rejects_extra_or_missing_fields_and_does_not_mutate_input() 
 def test_policy_positive_is_repeatable_simulation_only_and_budget_inclusive(city: str, calls_used: int) -> None:
     candidate = DEMO.best_intervention(4000, (city,), 1)
     inputs = policy_inputs(
-        candidate=candidate, survivors=(city,), posterior=signal(city),
-        recommendation=signal(candidate.key), challenge=signal(candidate.key), calls_used=calls_used,
+        candidate=candidate,
+        survivors=(city,),
+        posterior=signal(city),
+        recommendation=signal(candidate.key),
+        challenge=signal(candidate.key),
+        calls_used=calls_used,
     )
     decision = DEMO.decide(**inputs)
     assert decision == DEMO.decide(**inputs)
@@ -509,9 +525,18 @@ def test_failed_attempt_consumes_reserved_call_and_cannot_retry_over_budget(monk
 
 @pytest.mark.parametrize(
     ("field", "bad"),
-    [("demand", True), ("demand", math.nan), ("call_budget", 22), ("call_budget", 24),
-     ("probe_budget", -1), ("intervention_budget", 102), ("minimum_confidence", math.nan),
-     ("hidden_city", "unknown"), ("guardrails", {}), ("run_id", "")],
+    [
+        ("demand", True),
+        ("demand", math.nan),
+        ("call_budget", 22),
+        ("call_budget", 24),
+        ("probe_budget", -1),
+        ("intervention_budget", 102),
+        ("minimum_confidence", math.nan),
+        ("hidden_city", "unknown"),
+        ("guardrails", {}),
+        ("run_id", ""),
+    ],
 )
 def test_invalid_configuration_is_rejected_before_credentials_or_council(
     monkeypatch: pytest.MonkeyPatch, field: str, bad: Any
@@ -681,8 +706,13 @@ def test_order_challenge_only_reorders_evidence_and_withholds_recommendation(rec
 
 @pytest.mark.parametrize(
     ("probe", "budget", "authorized", "measured"),
-    [("repeat_baseline", 0, True, 80), ("inspect_outer", 0, False, None),
-     ("close_trial", 2, False, None), ("defer", 3, False, None), ("invented", 3, False, None)],
+    [
+        ("repeat_baseline", 0, True, 80),
+        ("inspect_outer", 0, False, None),
+        ("close_trial", 2, False, None),
+        ("defer", 3, False, None),
+        ("invented", 3, False, None),
+    ],
 )
 def test_uninformative_or_unauthorized_probe_never_identifies_city(
     recording_run: Any,
@@ -693,13 +723,16 @@ def test_uninformative_or_unauthorized_probe_never_identifies_city(
     measured: float | None,
 ) -> None:
     if not authorized:
+
         def forbidden_measurement(*args: Any, **kwargs: Any) -> Any:
             pytest.fail("An unauthorized probe must not access the private city")
 
         monkeypatch.setattr(DEMO, "probe_value", forbidden_measurement)
     result, council, _ = recording_run({**deepcopy(DEMO.STATE), "probe_budget": budget}, probe)
     assert council.inputs["posterior"]["measurement"] == {
-        "probe": probe, "authorized": authorized, "measured_minutes": measured,
+        "probe": probe,
+        "authorized": authorized,
+        "measured_minutes": measured,
     }
     reviewed = council.inputs["recommendation"]
     assert reviewed["surviving_cities"] == ("city_a", "city_b")
@@ -711,7 +744,9 @@ def test_uninformative_or_unauthorized_probe_never_identifies_city(
 def test_authorized_close_trial_uses_its_budget_boundary(recording_run: Any) -> None:
     result, council, _ = recording_run({**deepcopy(DEMO.STATE), "probe_budget": 3}, "close_trial")
     assert council.inputs["posterior"]["measurement"] == {
-        "probe": "close_trial", "authorized": True, "measured_minutes": 65,
+        "probe": "close_trial",
+        "authorized": True,
+        "measured_minutes": 65,
     }
     assert council.inputs["recommendation"]["surviving_cities"] == ("city_a",)
     assert not result.decision.fallback
