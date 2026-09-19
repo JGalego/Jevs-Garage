@@ -15,6 +15,7 @@ from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from queue import Queue
 from types import ModuleType
 from typing import Any, Protocol, cast
 from urllib.parse import unquote, urlsplit
@@ -29,7 +30,7 @@ from typesafe_sdk import (
     TypeSafeError,
 )
 
-from jevs_garage.operations import OperationRun
+from jevs_garage.operations import OperationRun, ProgressCallback, ProgressEvent, report_progress
 from jevs_garage.runtime import JevSignals, PolicyDecision, SignalNames, require_live_api_key, signals_from_response
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -68,7 +69,11 @@ class StagedDemoModule(DemoModule, Protocol):
 
     QUESTION_SETS: dict[str, Questions]
 
-    def execute(self, state: dict[str, Any] | None = None) -> OperationRun: ...
+    def execute(
+        self,
+        state: dict[str, Any] | None = None,
+        on_progress: ProgressCallback | None = None,
+    ) -> OperationRun: ...
 
 
 def discover_demo_paths(root: Path = REPOSITORY_ROOT) -> list[tuple[str, Path]]:
@@ -106,6 +111,15 @@ def _question_sets(module: DemoModule) -> dict[str, Questions]:
         return cast(dict[str, Questions], staged)
     simple = cast(SimpleDemoModule, module)
     return {"decision": simple.QUESTIONS}
+
+
+def _progress_steps(module: DemoModule, question_sets: dict[str, Questions]) -> list[dict[str, str]]:
+    configured = getattr(module, "PROGRESS_STEPS", None)
+    if configured is not None:
+        return [{"key": key, "label": label} for key, label in configured]
+    steps = [{"key": key, "label": key.replace("_", " ").title()} for key in question_sets]
+    steps.append({"key": "policy", "label": "Deterministic policy"})
+    return steps
 
 
 def _same_json_type(value: Any, template: Any) -> bool:
@@ -213,13 +227,19 @@ def collect_demos(root: Path = REPOSITORY_ROOT) -> list[dict[str, Any]]:
                 "state": module.STATE,
                 "questions": questions,
                 "stage_count": len(question_sets),
+                "progress_steps": _progress_steps(module, question_sets),
                 "command": f"uv run python {group}/{path.parent.name}/demo.py",
             }
         )
     return demos
 
 
-def run_demo(demo_id: str, state: dict[str, Any], root: Path = REPOSITORY_ROOT) -> dict[str, Any]:
+def run_demo(
+    demo_id: str,
+    state: dict[str, Any],
+    root: Path = REPOSITORY_ROOT,
+    on_progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
     """Run one named demo against Jev and apply its deterministic policy."""
 
     paths = {f"{group}/{path.parent.name}": (group, path) for group, path in discover_demo_paths(root)}
@@ -232,7 +252,7 @@ def run_demo(demo_id: str, state: dict[str, Any], root: Path = REPOSITORY_ROOT) 
     module = _load_demo(group, path)
     if hasattr(module, "execute"):
         staged = cast(StagedDemoModule, module)
-        operation = staged.execute(state)
+        operation = staged.execute(state, on_progress)
         models = list(dict.fromkeys(stage.response.model for stage in operation.stages))
         signals = [
             _signal_payload(f"{stage.key} / {name}", answer)
@@ -254,9 +274,13 @@ def run_demo(demo_id: str, state: dict[str, Any], root: Path = REPOSITORY_ROOT) 
 
     simple = cast(SimpleDemoModule, module)
     require_live_api_key()
+    report_progress(on_progress, "decision", "Jev decision", "running")
     with TypeSafeClient(timeout=30) as client:
         response = client.system_one(state=state, questions=simple.QUESTIONS)
+    report_progress(on_progress, "decision", "Jev decision", "completed", f"model={response.model}")
+    report_progress(on_progress, "policy", "Deterministic policy", "running")
     decision = simple.decide(signals_from_response(response, simple.SIGNALS))
+    report_progress(on_progress, "policy", "Deterministic policy", "completed", f"fallback={decision.fallback}")
     return {
         "model": response.model,
         "signals": [_signal_payload(name, answer) for name, answer in response.answers.items()],
@@ -391,6 +415,7 @@ INDEX_HTML = r"""<!doctype html>
       background: var(--paper);
       border: 3px solid var(--ink);
       box-shadow: 10px 10px 0 rgba(0, 0, 0, .35);
+      overflow: hidden;
     }
     dialog::backdrop { background: rgba(18, 20, 18, .76); }
     .dialog-head { padding: 21px 24px; background: var(--ink); color: #fff; display: flex; justify-content: space-between; gap: 18px; }
@@ -399,7 +424,7 @@ INDEX_HTML = r"""<!doctype html>
       width: 38px; height: 38px; border: 2px solid #fff; background: transparent; color: #fff;
       cursor: pointer; font-size: 25px; line-height: 1;
     }
-    .detail { padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .85fr); gap: 24px; }
+    .detail { max-height: calc(100vh - 210px); padding: 24px; overflow: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .85fr); gap: 24px; }
     .section-title { margin: 0 0 10px; font: 800 12px/1 "DejaVu Sans Mono", monospace; text-transform: uppercase; color: var(--muted); }
     pre { margin: 0; max-height: 310px; overflow: auto; padding: 16px; background: #272a26; color: #f7f2e8; font: 12px/1.55 "DejaVu Sans Mono", monospace; }
     .editor-shell { display: grid; min-width: 0; }
@@ -432,20 +457,39 @@ INDEX_HTML = r"""<!doctype html>
     .policy p { margin: 5px 0; line-height: 1.5; }
     .policy-meta { color: var(--muted); font-size: 12px; }
     .command { grid-column: 1 / -1; padding: 12px 14px; background: #ded9cc; font: 12px/1.4 "DejaVu Sans Mono", monospace; overflow-x: auto; }
-    .run-area { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .run-area { padding: 12px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); background: var(--panel); }
     .run-button { padding: 11px 16px; border: 2px solid var(--ink); background: var(--yellow); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); cursor: pointer; font-weight: 800; }
     .run-button:disabled { cursor: wait; opacity: .65; }
     .run-status { margin: 0; color: var(--muted); font: 700 12px/1.4 "DejaVu Sans Mono", monospace; }
+    .stage-tracker { flex-basis: 100%; display: flex; gap: 7px; padding: 2px 0 3px; overflow-x: auto; scrollbar-width: thin; }
+    .stage-step { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); color: var(--muted); background: var(--paper); font: 700 10px/1.2 "DejaVu Sans Mono", monospace; }
+    .stage-dot { width: 9px; height: 9px; border-radius: 50%; background: #aaa69d; }
+    .stage-step.running { color: var(--ink); border-color: var(--blue); }
+    .stage-step.running .stage-dot { background: var(--blue); animation: pulse 900ms ease-in-out infinite alternate; }
+    .stage-step.completed { color: #13634f; border-color: #17836a; }
+    .stage-step.completed .stage-dot { background: #17836a; }
+    .stage-step.failed { color: #a82720; border-color: #ce4538; }
+    .stage-step.failed .stage-dot { background: #ce4538; }
+    @keyframes pulse { to { transform: scale(1.45); opacity: .55; } }
     .operation-record { grid-column: 1 / -1; padding: 17px; border: 2px solid var(--ink); background: var(--panel); }
     .operation-record ul { margin: 0; padding-left: 20px; line-height: 1.55; }
     .operation-record pre { max-height: 220px; }
+    .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+    .source-receipt { padding: 12px; border: 1px solid var(--line); background: var(--paper); }
+    .source-receipt strong { display: block; margin-bottom: 6px; }
+    .source-receipt span { display: block; color: var(--muted); font: 11px/1.45 "DejaVu Sans Mono", monospace; overflow-wrap: anywhere; }
+    .visualizations { grid-column: 1 / -1; }
+    .visual-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; }
+    .visual-card { min-width: 0; padding: 14px; border: 2px solid var(--ink); background: var(--panel); }
+    .visual-card h4 { margin: 0 0 10px; font: 800 13px/1.25 "DejaVu Sans Mono", monospace; }
+    .visual-card canvas { display: block; width: 100%; height: 260px; background: #f8f5ed; }
     [hidden] { display: none !important; }
     .empty { padding: 48px 0; color: var(--muted); font-weight: 700; }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; }
       .counter { display: none; }
       .toolbar { align-items: stretch; flex-direction: column; }
-      .detail { grid-template-columns: 1fr; }
+      .detail { max-height: calc(100vh - 250px); grid-template-columns: 1fr; }
       .policy, .command { grid-column: 1; }
     }
     @media (prefers-reduced-motion: reduce) { .demo-card { transition: none; } }
@@ -476,6 +520,11 @@ INDEX_HTML = r"""<!doctype html>
       <div><span id="detail-group" class="eyebrow"></span><h2 id="detail-title"></h2></div>
       <button id="close" class="close" type="button" aria-label="Close details" title="Close">&times;</button>
     </div>
+    <div class="run-area">
+      <button id="run" class="run-button" type="button" disabled>Run Jev</button>
+      <p id="run-status" class="run-status">Input must pass validation before a live call.</p>
+      <div id="stage-tracker" class="stage-tracker" aria-label="Run stage progress"></div>
+    </div>
     <div class="detail">
       <section>
         <h3 class="section-title">Run input</h3>
@@ -491,9 +540,10 @@ INDEX_HTML = r"""<!doctype html>
       </section>
       <section><h3 id="signals-heading" class="section-title">Question contract</h3><div id="detail-signals" class="signal-list"></div></section>
       <section id="detail-policy" class="policy" hidden><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
+      <section id="detail-sources" class="operation-record" hidden><h3 class="section-title">Live source provenance</h3><div id="source-list" class="source-grid"></div></section>
+      <section id="detail-visualizations" class="visualizations" hidden><h3 class="section-title">Live data visualizations</h3><div id="visualization-grid" class="visual-grid"></div></section>
       <section id="detail-controls" class="operation-record" hidden><h3 class="section-title">Non-negotiable controls</h3><ul id="control-list"></ul></section>
       <section id="detail-audit" class="operation-record" hidden><h3 class="section-title">Operation audit</h3><pre id="audit-log"></pre></section>
-      <div class="run-area"><button id="run" class="run-button" type="button" disabled>Run Jev</button><p id="run-status" class="run-status">Input must pass validation before a live call.</p></div>
       <div id="detail-command" class="command"></div>
     </div>
   </dialog>
@@ -504,6 +554,10 @@ INDEX_HTML = r"""<!doctype html>
     const detail = document.querySelector("#detail");
     const signals = document.querySelector("#detail-signals");
     const policy = document.querySelector("#detail-policy");
+    const sourcesPanel = document.querySelector("#detail-sources");
+    const sourceList = document.querySelector("#source-list");
+    const visualizationsPanel = document.querySelector("#detail-visualizations");
+    const visualizationGrid = document.querySelector("#visualization-grid");
     const controlsPanel = document.querySelector("#detail-controls");
     const auditPanel = document.querySelector("#detail-audit");
     const inputEditor = document.querySelector("#detail-state");
@@ -511,6 +565,7 @@ INDEX_HTML = r"""<!doctype html>
     const inputStatus = document.querySelector("#input-status");
     const runButton = document.querySelector("#run");
     const runStatus = document.querySelector("#run-status");
+    const stageTracker = document.querySelector("#stage-tracker");
     let validationTimer;
     let validationVersion = 0;
 
@@ -532,6 +587,34 @@ INDEX_HTML = r"""<!doctype html>
     function setInputStatus(kind, message) {
       inputStatus.className = `input-status ${kind}`;
       inputStatus.textContent = message;
+    }
+
+    function initializeStageTracker(steps) {
+      stageTracker.replaceChildren();
+      steps.forEach((step) => {
+        const item = element("div", "stage-step pending");
+        item.dataset.stage = step.key;
+        item.title = step.label;
+        item.append(element("span", "stage-dot"), element("span", "", step.label));
+        stageTracker.append(item);
+      });
+    }
+
+    function updateStage(event) {
+      const item = [...stageTracker.children].find((node) => node.dataset.stage === event.key);
+      if (!item) return;
+      item.className = `stage-step ${event.status}`;
+      item.title = event.detail ? `${event.label}: ${event.detail}` : event.label;
+      item.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      const complete = stageTracker.querySelectorAll(".completed").length;
+      runStatus.textContent = `${complete}/${stageTracker.children.length} complete / ${event.label}`;
+    }
+
+    function failRunningStages(message) {
+      stageTracker.querySelectorAll(".running").forEach((item) => {
+        item.className = "stage-step failed";
+        item.title = message;
+      });
     }
 
     function renderJsonHighlight() {
@@ -574,6 +657,165 @@ INDEX_HTML = r"""<!doctype html>
       });
     }
 
+    function canvasContext(canvas) {
+      const ratio = Math.min(devicePixelRatio || 1, 2);
+      const width = Math.max(360, Math.floor(canvas.getBoundingClientRect().width));
+      const height = 260;
+      canvas.width = width * ratio;
+      canvas.height = height * ratio;
+      const context = canvas.getContext("2d");
+      context.scale(ratio, ratio);
+      context.font = '11px "DejaVu Sans Mono", monospace';
+      context.lineWidth = 1.5;
+      return { context, width, height };
+    }
+
+    function drawBar(context, width, height, points) {
+      const rows = points.slice(0, 10);
+      const left = 118;
+      const right = 34;
+      const top = 12;
+      const rowHeight = (height - 24) / Math.max(rows.length, 1);
+      const maximum = Math.max(...rows.map((point) => point.value), 1);
+      rows.forEach((point, index) => {
+        const y = top + index * rowHeight;
+        const barWidth = (width - left - right) * point.value / maximum;
+        context.fillStyle = "#65665f";
+        context.textAlign = "right";
+        context.fillText(point.label.slice(0, 16), left - 8, y + rowHeight * .64);
+        context.fillStyle = confidenceColor(point.value / maximum);
+        context.fillRect(left, y + 3, barWidth, Math.max(8, rowHeight - 8));
+        context.fillStyle = "#171916";
+        context.textAlign = "left";
+        context.fillText(String(point.value), Math.min(left + barWidth + 6, width - right), y + rowHeight * .64);
+      });
+    }
+
+    function drawLine(context, width, height, points) {
+      const left = 42;
+      const top = 16;
+      const plotWidth = width - left - 20;
+      const plotHeight = height - top - 34;
+      const maximum = Math.max(...points.map((point) => point.value), 1);
+      context.strokeStyle = "#c8c3b7";
+      context.strokeRect(left, top, plotWidth, plotHeight);
+      context.beginPath();
+      points.forEach((point, index) => {
+        const x = left + plotWidth * index / Math.max(points.length - 1, 1);
+        const y = top + plotHeight * (1 - point.value / maximum);
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.strokeStyle = "#3674bb";
+      context.lineWidth = 3;
+      context.stroke();
+      points.forEach((point, index) => {
+        const x = left + plotWidth * index / Math.max(points.length - 1, 1);
+        const y = top + plotHeight * (1 - point.value / maximum);
+        context.beginPath();
+        context.arc(x, y, 3.2, 0, Math.PI * 2);
+        context.fillStyle = confidenceColor(point.value / Math.max(maximum, 5));
+        context.fill();
+      });
+      context.fillStyle = "#68675f";
+      context.textAlign = "left";
+      context.fillText(points[0]?.label?.slice(0, 16) || "", left, height - 10);
+      context.textAlign = "right";
+      context.fillText(points.at(-1)?.label?.slice(0, 16) || "", width - 20, height - 10);
+    }
+
+    function drawMap(context, width, height, points) {
+      const left = 18;
+      const top = 12;
+      const plotWidth = width - 36;
+      const plotHeight = height - 24;
+      context.fillStyle = "#e8e3d8";
+      context.fillRect(left, top, plotWidth, plotHeight);
+      context.strokeStyle = "#c8c3b7";
+      for (let longitude = -120; longitude <= 120; longitude += 60) {
+        const x = left + (longitude + 180) / 360 * plotWidth;
+        context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke();
+      }
+      for (let latitude = -60; latitude <= 60; latitude += 30) {
+        const y = top + (90 - latitude) / 180 * plotHeight;
+        context.beginPath(); context.moveTo(left, y); context.lineTo(left + plotWidth, y); context.stroke();
+      }
+      points.forEach((point) => {
+        const x = left + (point.x + 180) / 360 * plotWidth;
+        const y = top + (90 - point.y) / 180 * plotHeight;
+        const radius = Math.max(3, point.value * 1.25);
+        context.beginPath();
+        context.arc(x, y, radius, 0, Math.PI * 2);
+        context.fillStyle = confidenceColor(Math.min(point.value / 8, 1));
+        context.globalAlpha = .78;
+        context.fill();
+        context.globalAlpha = 1;
+      });
+    }
+
+    function drawPipeline(context, width, height, points) {
+      const margin = 46;
+      const maxX = Math.max(...points.map((point) => point.x), 1);
+      const maxY = Math.max(...points.map((point) => point.y), 1);
+      const position = (point) => ({
+        x: margin + (width - margin * 2) * point.x / maxX,
+        y: margin + (height - margin * 2) * point.y / maxY,
+      });
+      const layers = [...new Set(points.map((point) => point.x))].sort((a, b) => a - b);
+      for (let index = 0; index < layers.length - 1; index += 1) {
+        const current = points.filter((point) => point.x === layers[index]);
+        const next = points.filter((point) => point.x === layers[index + 1]);
+        current.forEach((from) => next.forEach((to) => {
+          const start = position(from);
+          const end = position(to);
+          context.beginPath(); context.moveTo(start.x, start.y); context.lineTo(end.x, end.y);
+          context.strokeStyle = "#aaa69d"; context.lineWidth = 1; context.stroke();
+        }));
+      }
+      points.forEach((point) => {
+        const location = position(point);
+        context.beginPath();
+        context.arc(location.x, location.y, 10, 0, Math.PI * 2);
+        context.fillStyle = confidenceColor(point.value);
+        context.fill();
+        context.fillStyle = "#171916";
+        context.textAlign = "center";
+        context.fillText(point.label.slice(0, 15), location.x, location.y + 25);
+      });
+    }
+
+    function renderSources(sources) {
+      sourceList.replaceChildren();
+      sources.forEach((source) => {
+        const card = element("div", "source-receipt");
+        card.append(
+          element("strong", "", source.name),
+          element("span", "", `${source.record_count} records`),
+          element("span", "", `Updated ${source.source_updated_at}`),
+          element("span", "", `SHA-256 ${source.content_sha256.slice(0, 16)}`),
+        );
+        sourceList.append(card);
+      });
+      sourcesPanel.hidden = !sources.length;
+    }
+
+    function renderVisualizations(visualizations) {
+      visualizationGrid.replaceChildren();
+      visualizations.forEach((visualization) => {
+        const card = element("article", "visual-card");
+        const canvas = document.createElement("canvas");
+        card.append(element("h4", "", visualization.title), canvas);
+        visualizationGrid.append(card);
+        const { context, width, height } = canvasContext(canvas);
+        if (visualization.kind === "bar") drawBar(context, width, height, visualization.points);
+        else if (visualization.kind === "line") drawLine(context, width, height, visualization.points);
+        else if (visualization.kind === "map") drawMap(context, width, height, visualization.points);
+        else if (visualization.kind === "pipeline") drawPipeline(context, width, height, visualization.points);
+        canvas.title = visualization.points.map((point) => `${point.label}: ${point.detail || point.value}`).join("\n");
+      });
+      visualizationsPanel.hidden = !visualizations.length;
+    }
+
     function renderResult(result) {
       document.querySelector("#signals-heading").textContent = `Typed Jev signals / ${result.model}`;
       signals.replaceChildren();
@@ -597,6 +839,8 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelector("#detail-meta").textContent = `Owner: ${result.decision.owner} | policy confidence: ${percent(result.decision.confidence)}`;
       policy.classList.toggle("fallback", result.decision.fallback);
       policy.hidden = false;
+      renderSources(result.sources || []);
+      renderVisualizations(result.visualizations || []);
       const controlList = document.querySelector("#control-list");
       controlList.replaceChildren();
       (result.controls || []).forEach((control) => controlList.append(element("li", "", control)));
@@ -620,8 +864,11 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelector("#signals-heading").textContent = "Question contract";
       renderQuestions(demo.questions);
       policy.hidden = true;
+      sourcesPanel.hidden = true;
+      visualizationsPanel.hidden = true;
       controlsPanel.hidden = true;
       auditPanel.hidden = true;
+      initializeStageTracker(demo.progress_steps);
       runButton.disabled = true;
       runButton.textContent = demo.stage_count > 1 ? `Run ${demo.stage_count} Jev stages` : "Run Jev";
       runStatus.textContent = "Input must pass validation before a live call.";
@@ -674,21 +921,52 @@ INDEX_HTML = r"""<!doctype html>
     async function runLive() {
       if (!view.current) return;
       if (!view.validatedState && !(await validateInput())) return;
+      initializeStageTracker(view.current.progress_steps);
       runButton.disabled = true;
       runButton.textContent = "Calling Jev...";
-      runStatus.textContent = "Waiting for a live TypeSafe response.";
+      runStatus.textContent = `0/${view.current.progress_steps.length} complete / starting`;
       try {
-        const response = await fetch(`/api/demos/${view.current.id}`, {
+        const response = await fetch(`/api/demos/${view.current.id}/stream`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson" },
           body: JSON.stringify({ state: view.validatedState }),
         });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-        renderResult(payload);
+        if (!response.ok) {
+          const payload = await response.json();
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        if (!response.body) throw new Error("Streaming response body is unavailable");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let resultReceived = false;
+
+        function processLine(line) {
+          if (!line.trim()) return;
+          const message = JSON.parse(line);
+          if (message.type === "progress") updateStage(message.event);
+          else if (message.type === "result") {
+            renderResult(message.payload);
+            resultReceived = true;
+          } else if (message.type === "error") {
+            throw new Error(message.error);
+          }
+        }
+
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          lines.forEach(processLine);
+          if (done) break;
+        }
+        processLine(buffer);
+        if (!resultReceived) throw new Error("Run ended without a final result");
         runStatus.textContent = "Live result received. No side effect was executed.";
         runButton.textContent = "Run again";
       } catch (error) {
+        failRunningStages(error.message);
         runStatus.textContent = `Live run failed: ${error.message}`;
         runButton.textContent = "Try again";
       } finally {
@@ -826,6 +1104,40 @@ class GalleryHandler(BaseHTTPRequestHandler):
         state_bytes = len(json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode())
         return state, state_bytes
 
+    def _stream_run(self, demo_id: str, state: dict[str, Any], root: Path) -> None:
+        events: Queue[dict[str, Any] | None] = Queue()
+
+        def on_progress(event: ProgressEvent) -> None:
+            events.put({"type": "progress", "event": asdict(event)})
+
+        def worker() -> None:
+            try:
+                payload = run_demo(demo_id, state, root, on_progress)
+                events.put({"type": "result", "payload": payload})
+            except (SystemExit, TypeSafeError, ValueError) as error:
+                events.put({"type": "error", "error": str(error)})
+            except Exception as error:  # pragma: no cover - final containment boundary
+                events.put({"type": "error", "error": f"Run failed safely: {type(error).__name__}"})
+            finally:
+                events.put(None)
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        threading.Thread(target=worker, name=f"gallery-run-{demo_id}", daemon=True).start()
+        while True:
+            event = events.get()
+            if event is None:
+                break
+            try:
+                self.wfile.write(json.dumps(event, ensure_ascii=False).encode() + b"\n")
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                break
+
     def do_GET(self) -> None:  # noqa: N802
         request = urlsplit(self.path)
         if request.path == "/":
@@ -850,7 +1162,13 @@ class GalleryHandler(BaseHTTPRequestHandler):
 
         relative_path = unquote(request.path.removeprefix(prefix)).strip("/")
         validate_only = relative_path.endswith("/validate")
-        demo_id = relative_path.removesuffix("/validate") if validate_only else relative_path
+        stream_only = relative_path.endswith("/stream")
+        if validate_only:
+            demo_id = relative_path.removesuffix("/validate")
+        elif stream_only:
+            demo_id = relative_path.removesuffix("/stream")
+        else:
+            demo_id = relative_path
         root = cast(GalleryServer, self.server).gallery_root
         try:
             state, state_bytes = self._read_state()
@@ -871,6 +1189,9 @@ class GalleryHandler(BaseHTTPRequestHandler):
         if errors:
             body = json.dumps({"error": "Input shape is invalid", "errors": errors}).encode()
             self._write(HTTPStatus.UNPROCESSABLE_ENTITY, body, "application/json")
+            return
+        if stream_only:
+            self._stream_run(demo_id, state, root)
             return
 
         try:

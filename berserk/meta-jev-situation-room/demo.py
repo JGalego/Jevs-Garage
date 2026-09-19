@@ -18,9 +18,11 @@ from jevs_garage.operations import (
     ChartPoint,
     OperationRun,
     OperationStage,
+    ProgressCallback,
     SourceReceipt,
     Visualization,
     render_operation,
+    report_progress,
     state_fingerprint,
 )
 from jevs_garage.public_data import PublicDataError, fetch_json
@@ -248,6 +250,21 @@ QUESTION_SETS = {
     "arbitration": ARBITRATION_QUESTIONS,
     "stability": STABILITY_QUESTIONS,
 }
+PROGRESS_STEPS = (
+    ("source-earthquake", "Fetch USGS earthquakes"),
+    ("source-weather", "Fetch NWS alerts"),
+    ("source-cyber", "Fetch CISA KEV"),
+    ("source-space_weather", "Fetch NOAA Kp"),
+    ("earthquake", "Earthquake specialist Jev"),
+    ("weather", "Weather specialist Jev"),
+    ("cyber", "Cyber specialist Jev"),
+    ("space_weather", "Space-weather specialist Jev"),
+    ("calibration", "Calibration critic Jev"),
+    ("dependencies", "Dependency critic Jev"),
+    ("arbitration", "Posture arbiter Jev"),
+    ("stability", "Counterfactual stability Jev"),
+    ("policy", "Deterministic policy"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -463,6 +480,12 @@ SOURCE_LOADERS: dict[str, Callable[[dict[str, Any]], SourceSnapshot]] = {
     "cyber": _cyber,
     "space_weather": _space_weather,
 }
+SOURCE_LABELS = {
+    "earthquake": "Fetch USGS earthquakes",
+    "weather": "Fetch NWS alerts",
+    "cyber": "Fetch CISA KEV",
+    "space_weather": "Fetch NOAA Kp",
+}
 DOMAIN_QUESTIONS = {
     "earthquake": EARTHQUAKE_QUESTIONS,
     "weather": WEATHER_QUESTIONS,
@@ -471,9 +494,44 @@ DOMAIN_QUESTIONS = {
 }
 
 
-def _run_jev(state: dict[str, Any], questions: Questions) -> SystemOneResponse:
-    with TypeSafeClient(timeout=30) as client:
-        return client.system_one(state=state, questions=questions)
+def _load_source_stage(
+    key: str,
+    config: dict[str, Any],
+    on_progress: ProgressCallback | None,
+) -> SourceSnapshot:
+    label = SOURCE_LABELS[key]
+    report_progress(on_progress, f"source-{key}", label, "running")
+    try:
+        snapshot = SOURCE_LOADERS[key](config)
+    except Exception as error:
+        report_progress(on_progress, f"source-{key}", label, "failed", type(error).__name__)
+        raise
+    report_progress(
+        on_progress,
+        f"source-{key}",
+        label,
+        "completed",
+        f"records={snapshot.receipt.record_count}",
+    )
+    return snapshot
+
+
+def _run_jev_stage(
+    key: str,
+    label: str,
+    state: dict[str, Any],
+    questions: Questions,
+    on_progress: ProgressCallback | None,
+) -> SystemOneResponse:
+    report_progress(on_progress, key, label, "running")
+    try:
+        with TypeSafeClient(timeout=30) as client:
+            response = client.system_one(state=state, questions=questions)
+    except Exception as error:
+        report_progress(on_progress, key, label, "failed", type(error).__name__)
+        raise
+    report_progress(on_progress, key, label, "completed", f"model={response.model}")
+    return response
 
 
 def _pipeline_chart(signals: dict[str, JevSignals]) -> Visualization:
@@ -584,7 +642,10 @@ def decide(assessment: MetaAssessment) -> PolicyDecision:
     )
 
 
-def execute(state: dict[str, Any] | None = None) -> OperationRun:
+def execute(
+    state: dict[str, Any] | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> OperationRun:
     require_live_api_key()
     config = deepcopy(STATE if state is None else state)
     errors = validate_state(config)
@@ -595,7 +656,7 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
     source_failures: dict[str, str] = {}
 
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="source") as pool:
-        futures = {pool.submit(loader, config): key for key, loader in SOURCE_LOADERS.items()}
+        futures = {pool.submit(_load_source_stage, key, config, on_progress): key for key in SOURCE_LOADERS}
         for future in as_completed(futures):
             key = futures[future]
             try:
@@ -606,7 +667,14 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
     domain_responses: dict[str, SystemOneResponse] = {}
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="domain-jev") as pool:
         futures = {
-            pool.submit(_run_jev, snapshot.summary, DOMAIN_QUESTIONS[key]): key
+            pool.submit(
+                _run_jev_stage,
+                key,
+                f"{key.replace('_', ' ').title()} specialist Jev",
+                snapshot.summary,
+                DOMAIN_QUESTIONS[key],
+                on_progress,
+            ): key
             for key, snapshot in source_snapshots.items()
         }
         for future in as_completed(futures):
@@ -625,8 +693,22 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
     }
 
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="critic-jev") as pool:
-        calibration_future = pool.submit(_run_jev, evidence_graph, CALIBRATION_QUESTIONS)
-        dependency_future = pool.submit(_run_jev, evidence_graph, DEPENDENCY_QUESTIONS)
+        calibration_future = pool.submit(
+            _run_jev_stage,
+            "calibration",
+            "Calibration critic Jev",
+            evidence_graph,
+            CALIBRATION_QUESTIONS,
+            on_progress,
+        )
+        dependency_future = pool.submit(
+            _run_jev_stage,
+            "dependencies",
+            "Dependency critic Jev",
+            evidence_graph,
+            DEPENDENCY_QUESTIONS,
+            on_progress,
+        )
         calibration_response = calibration_future.result()
         dependency_response = dependency_future.result()
     calibration = signals_from_response(calibration_response, CALIBRATION_SIGNALS)
@@ -643,7 +725,13 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
             "advisory_only": True,
         },
     }
-    arbitration_response = _run_jev(arbitration_state, ARBITRATION_QUESTIONS)
+    arbitration_response = _run_jev_stage(
+        "arbitration",
+        "Posture arbiter Jev",
+        arbitration_state,
+        ARBITRATION_QUESTIONS,
+        on_progress,
+    )
     arbitration = signals_from_response(arbitration_response, ARBITRATION_SIGNALS)
 
     stability_state = {
@@ -652,7 +740,13 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
         "arbiter_output": asdict(arbitration),
         "task": "Challenge the arbiter by considering whether one plausible input change would reverse it.",
     }
-    stability_response = _run_jev(stability_state, STABILITY_QUESTIONS)
+    stability_response = _run_jev_stage(
+        "stability",
+        "Counterfactual stability Jev",
+        stability_state,
+        STABILITY_QUESTIONS,
+        on_progress,
+    )
     stability = signals_from_response(stability_response, STABILITY_SIGNALS)
 
     all_signals = {
@@ -672,7 +766,9 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
         minimum_source_success=config["minimum_source_success"],
         minimum_final_confidence=config["minimum_final_confidence"],
     )
+    report_progress(on_progress, "policy", "Deterministic policy", "running")
     decision = decide(assessment)
+    report_progress(on_progress, "policy", "Deterministic policy", "completed", f"fallback={decision.fallback}")
     stage_responses = {
         **domain_responses,
         "calibration": calibration_response,

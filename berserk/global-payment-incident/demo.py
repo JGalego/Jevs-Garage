@@ -8,7 +8,15 @@ from typing import Any
 
 from typesafe_sdk import Choice, Noul, Questions, Score, TypeSafeClient
 
-from jevs_garage.operations import AuditEvent, OperationRun, OperationStage, render_operation, state_fingerprint
+from jevs_garage.operations import (
+    AuditEvent,
+    OperationRun,
+    OperationStage,
+    ProgressCallback,
+    render_operation,
+    report_progress,
+    state_fingerprint,
+)
 from jevs_garage.runtime import JevSignals, PolicyDecision, SignalNames, require_live_api_key, signals_from_response
 
 TITLE = "Global payment incident command"
@@ -95,6 +103,11 @@ INTERVENTION_QUESTIONS: Questions = {
 }
 INTERVENTION_SIGNALS = SignalNames(choice="intervention", score="change_risk", noul="evidence_sufficient")
 QUESTION_SETS = {"situation": SITUATION_QUESTIONS, "intervention": INTERVENTION_QUESTIONS}
+PROGRESS_STEPS = (
+    ("situation", "Situation assessment"),
+    ("intervention", "Intervention challenge"),
+    ("policy", "Deterministic policy"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,12 +175,23 @@ def decide(assessment: PaymentAssessment) -> PolicyDecision:
     )
 
 
-def execute(state: dict[str, Any] | None = None) -> OperationRun:
+def execute(
+    state: dict[str, Any] | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> OperationRun:
     require_live_api_key()
     snapshot = deepcopy(STATE if state is None else state)
     fingerprint = state_fingerprint(snapshot)
     with TypeSafeClient(timeout=30) as client:
+        report_progress(on_progress, "situation", "Situation assessment", "running")
         situation_response = client.system_one(state=snapshot, questions=SITUATION_QUESTIONS)
+        report_progress(
+            on_progress,
+            "situation",
+            "Situation assessment",
+            "completed",
+            f"model={situation_response.model}",
+        )
         situation = signals_from_response(situation_response, SITUATION_SIGNALS)
         intervention_state = {
             "incident_snapshot": snapshot,
@@ -180,10 +204,20 @@ def execute(state: dict[str, Any] | None = None) -> OperationRun:
                 "Dual approval is mandatory",
             ],
         }
+        report_progress(on_progress, "intervention", "Intervention challenge", "running")
         intervention_response = client.system_one(state=intervention_state, questions=INTERVENTION_QUESTIONS)
+        report_progress(
+            on_progress,
+            "intervention",
+            "Intervention challenge",
+            "completed",
+            f"model={intervention_response.model}",
+        )
         intervention = signals_from_response(intervention_response, INTERVENTION_SIGNALS)
 
+    report_progress(on_progress, "policy", "Deterministic policy", "running")
     decision = decide(PaymentAssessment(situation=situation, intervention=intervention))
+    report_progress(on_progress, "policy", "Deterministic policy", "completed", f"fallback={decision.fallback}")
     return OperationRun(
         correlation_id=str(snapshot["incident_id"]),
         policy_version=POLICY_VERSION,

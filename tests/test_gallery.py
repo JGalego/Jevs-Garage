@@ -23,6 +23,11 @@ def test_gallery_discovers_every_demo() -> None:
     assert sorted(len(demo["questions"]) for demo in demos).count(24) == 1
     assert sorted(len(demo["questions"]) for demo in demos).count(3) == 22
     assert all("signals" not in demo and "decision" not in demo for demo in demos)
+    payment = next(demo for demo in demos if demo["id"] == "berserk/global-payment-incident")
+    meta = next(demo for demo in demos if demo["id"] == "berserk/meta-jev-situation-room")
+    assert len(payment["progress_steps"]) == 3
+    assert len(meta["progress_steps"]) == 13
+    assert all(demo["progress_steps"] for demo in demos)
 
 
 def test_gallery_shell_and_api_are_served() -> None:
@@ -133,3 +138,11 @@ def test_gallery_highlights_json_without_injecting_html() -> None:
     assert "token.textContent = match[0]" in INDEX_HTML
     assert "inputHighlight.replaceChildren(fragment)" in INDEX_HTML
     assert "innerHTML" not in INDEX_HTML
+
+
+def test_gallery_streams_real_stage_progress_in_the_sticky_command_bar() -> None:
+    assert 'id="stage-tracker"' in INDEX_HTML
+    assert "function updateStage(event)" in INDEX_HTML
+    assert "application/x-ndjson" in INDEX_HTML
+    assert "/stream`" in INDEX_HTML
+    assert INDEX_HTML.index('class="run-area"') < INDEX_HTML.index('class="detail"')

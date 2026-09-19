@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from rich.console import Console, Group
 from rich.json import JSON
@@ -69,6 +70,32 @@ class Visualization:
     points: tuple[ChartPoint, ...]
     x_label: str = ""
     y_label: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressEvent:
+    """A real-time transition emitted by a running operation stage."""
+
+    key: str
+    label: str
+    status: Literal["running", "completed", "failed"]
+    detail: str = ""
+
+
+ProgressCallback: TypeAlias = Callable[[ProgressEvent], None]
+
+
+def report_progress(
+    callback: ProgressCallback | None,
+    key: str,
+    label: str,
+    status: Literal["running", "completed", "failed"],
+    detail: str = "",
+) -> None:
+    """Emit progress when a caller requested streaming updates."""
+
+    if callback is not None:
+        callback(ProgressEvent(key=key, label=label, status=status, detail=detail))
 
 
 @dataclass(frozen=True, slots=True)
