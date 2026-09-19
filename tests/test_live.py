@@ -19,12 +19,19 @@ DEMO_PATHS = discover_demo_paths()
 )
 def test_demo_against_typesafe_api(group: str, path: Path) -> None:
     module = load_demo(path)
-    response = module.evaluate()
-    assert_response_contract(module.QUESTIONS, response)
-
-    decision = module.decide(signals_from_response(response, module.SIGNALS))
+    if hasattr(module, "execute"):
+        operation = module.execute()
+        for stage in operation.stages:
+            assert_response_contract(module.QUESTION_SETS[stage.key], stage.response)
+        decision = operation.decision
+        assert operation.controls
+        assert operation.audit[-1].event == "execution.blocked"
+    else:
+        response = module.evaluate()
+        assert_response_contract(module.QUESTIONS, response)
+        decision = module.decide(signals_from_response(response, module.SIGNALS))
     assert decision.action
     assert decision.reason
     assert decision.owner
     assert 0 <= decision.confidence <= 1
-    assert group in {"critical", "fun"}
+    assert group in {"critical", "berserk", "fun"}

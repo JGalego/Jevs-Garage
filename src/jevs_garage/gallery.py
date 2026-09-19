@@ -21,23 +21,37 @@ from urllib.parse import unquote, urlsplit
 
 from typesafe_sdk import ChoiceAnswer, NoulAnswer, Questions, ScoreAnswer, SystemOneResponse, TypeSafeError
 
+from jevs_garage.operations import OperationRun
 from jevs_garage.runtime import JevSignals, PolicyDecision, SignalNames, signals_from_response
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-GROUPS = ("critical", "fun")
+GROUPS = ("critical", "berserk", "fun")
 
 
 class DemoModule(Protocol):
-    """The small public surface shared by every standalone demo."""
+    """The metadata surface shared by every standalone demo."""
 
     TITLE: str
     STATE: dict[str, Any]
+
+
+class SimpleDemoModule(DemoModule, Protocol):
+    """Execution surface for a single-stage demo."""
+
     QUESTIONS: Questions
     SIGNALS: SignalNames
 
     def evaluate(self) -> SystemOneResponse: ...
 
     def decide(self, signals: JevSignals) -> PolicyDecision: ...
+
+
+class StagedDemoModule(DemoModule, Protocol):
+    """Execution surface for a multi-stage Berserk demo."""
+
+    QUESTION_SETS: dict[str, Questions]
+
+    def execute(self) -> OperationRun: ...
 
 
 def discover_demo_paths(root: Path = REPOSITORY_ROOT) -> list[tuple[str, Path]]:
@@ -67,6 +81,14 @@ def _load_demo(group: str, path: Path) -> DemoModule:
 def _description(path: Path) -> str:
     sections = path.read_text(encoding="utf-8").split("\n\n")
     return " ".join(sections[1].splitlines()) if len(sections) > 1 else ""
+
+
+def _question_sets(module: DemoModule) -> dict[str, Questions]:
+    staged = getattr(module, "QUESTION_SETS", None)
+    if staged is not None:
+        return cast(dict[str, Questions], staged)
+    simple = cast(SimpleDemoModule, module)
+    return {"decision": simple.QUESTIONS}
 
 
 def _signal_payload(name: str, answer: ChoiceAnswer | ScoreAnswer | NoulAnswer) -> dict[str, Any]:
@@ -99,20 +121,25 @@ def collect_demos(root: Path = REPOSITORY_ROOT) -> list[dict[str, Any]]:
     for group, path in discover_demo_paths(root):
         module = _load_demo(group, path)
         questions = []
-        for name, question in module.QUESTIONS.items():
-            if isinstance(question, dict):
-                question_type = question["type"]
-                instructions = question.get("instructions")
-            else:
-                question_type = question.type
-                instructions = question.instructions
-            questions.append(
-                {
-                    "name": name.replace("_", " "),
-                    "type": question_type,
-                    "instructions": instructions,
-                }
-            )
+        question_sets = _question_sets(module)
+        staged = len(question_sets) > 1
+        for stage, stage_questions in question_sets.items():
+            for name, question in stage_questions.items():
+                if isinstance(question, dict):
+                    question_type = question["type"]
+                    instructions = question.get("instructions")
+                else:
+                    question_type = question.type
+                    instructions = question.instructions
+                label = f"{stage.replace('_', ' ')} / {name.replace('_', ' ')}" if staged else name.replace("_", " ")
+                questions.append(
+                    {
+                        "name": label,
+                        "stage": stage,
+                        "type": question_type,
+                        "instructions": instructions,
+                    }
+                )
         demos.append(
             {
                 "id": f"{group}/{path.parent.name}",
@@ -122,6 +149,7 @@ def collect_demos(root: Path = REPOSITORY_ROOT) -> list[dict[str, Any]]:
                 "description": _description(path.with_name("README.md")),
                 "state": module.STATE,
                 "questions": questions,
+                "stage_count": len(question_sets),
                 "command": f"uv run python {group}/{path.parent.name}/demo.py",
             }
         )
@@ -136,12 +164,35 @@ def run_demo(demo_id: str, root: Path = REPOSITORY_ROOT) -> dict[str, Any]:
         raise KeyError(demo_id)
     group, path = paths[demo_id]
     module = _load_demo(group, path)
-    response = module.evaluate()
-    decision = module.decide(signals_from_response(response, module.SIGNALS))
+    if hasattr(module, "execute"):
+        staged = cast(StagedDemoModule, module)
+        operation = staged.execute()
+        models = list(dict.fromkeys(stage.response.model for stage in operation.stages))
+        signals = [
+            _signal_payload(f"{stage.key} / {name}", answer)
+            for stage in operation.stages
+            for name, answer in stage.response.answers.items()
+        ]
+        return {
+            "model": " -> ".join(models),
+            "signals": signals,
+            "decision": asdict(operation.decision),
+            "controls": list(operation.controls),
+            "audit": [asdict(event) for event in operation.audit],
+            "correlation_id": operation.correlation_id,
+            "policy_version": operation.policy_version,
+            "state_fingerprint": operation.state_fingerprint,
+        }
+
+    simple = cast(SimpleDemoModule, module)
+    response = simple.evaluate()
+    decision = simple.decide(signals_from_response(response, simple.SIGNALS))
     return {
         "model": response.model,
         "signals": [_signal_payload(name, answer) for name, answer in response.answers.items()],
         "decision": asdict(decision),
+        "controls": [],
+        "audit": [],
     }
 
 
@@ -160,6 +211,7 @@ INDEX_HTML = r"""<!doctype html>
       --line: #c8c3b7;
       --muted: #68675f;
       --critical: #ce4538;
+      --berserk: #b56b00;
       --fun: #17836a;
       --yellow: #f3c447;
       --blue: #3674bb;
@@ -244,10 +296,12 @@ INDEX_HTML = r"""<!doctype html>
     }
     .demo-card:hover, .demo-card:focus-visible { transform: translate(-2px, -2px); box-shadow: 8px 8px 0 var(--ink); outline: none; }
     .stripe { background: var(--critical); }
+    .demo-card.berserk .stripe { background: var(--berserk); }
     .demo-card.fun .stripe { background: var(--fun); }
     .card-head, .card-body, .card-foot { padding-left: 19px; padding-right: 19px; }
     .card-head { padding-top: 17px; display: flex; justify-content: space-between; gap: 12px; align-items: start; }
     .eyebrow { color: var(--critical); font: 800 11px/1 "DejaVu Sans Mono", monospace; text-transform: uppercase; }
+    .berserk .eyebrow { color: var(--berserk); }
     .fun .eyebrow { color: var(--fun); }
     h2 { margin: 8px 0 0; font: 800 20px/1.2 "DejaVu Sans Mono", monospace; letter-spacing: 0; }
     .live-badge { padding: 5px 7px; color: #fff; background: var(--blue); white-space: nowrap; font: 800 11px/1 "DejaVu Sans Mono", monospace; }
@@ -255,6 +309,7 @@ INDEX_HTML = r"""<!doctype html>
     .card-foot { padding-top: 15px; padding-bottom: 17px; display: grid; gap: 10px; }
     .meter { height: 8px; border: 1px solid var(--ink); background: #ddd8cc; }
     .meter > span { display: block; height: 100%; background: var(--critical); }
+    .berserk .meter > span { background: var(--berserk); }
     .fun .meter > span { background: var(--fun); }
     .outcome { font: 700 12px/1.35 "DejaVu Sans Mono", monospace; }
     .outcome.fallback { color: #8b5c00; }
@@ -293,6 +348,9 @@ INDEX_HTML = r"""<!doctype html>
     .run-button { padding: 11px 16px; border: 2px solid var(--ink); background: var(--yellow); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); cursor: pointer; font-weight: 800; }
     .run-button:disabled { cursor: wait; opacity: .65; }
     .run-status { margin: 0; color: var(--muted); font: 700 12px/1.4 "DejaVu Sans Mono", monospace; }
+    .operation-record { grid-column: 1 / -1; padding: 17px; border: 2px solid var(--ink); background: var(--panel); }
+    .operation-record ul { margin: 0; padding-left: 20px; line-height: 1.55; }
+    .operation-record pre { max-height: 220px; }
     [hidden] { display: none !important; }
     .empty { padding: 48px 0; color: var(--muted); font-weight: 700; }
     @media (max-width: 720px) {
@@ -318,6 +376,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="segmented" aria-label="Demo group">
         <button type="button" data-group="all" aria-pressed="true">All bays</button>
         <button type="button" data-group="critical" aria-pressed="false">Critical</button>
+        <button type="button" data-group="berserk" aria-pressed="false">Berserk</button>
         <button type="button" data-group="fun" aria-pressed="false">Fun</button>
       </div>
     </nav>
@@ -333,6 +392,8 @@ INDEX_HTML = r"""<!doctype html>
       <section><h3 class="section-title">Sample state</h3><pre id="detail-state"></pre></section>
       <section><h3 id="signals-heading" class="section-title">Question contract</h3><div id="detail-signals" class="signal-list"></div></section>
       <section id="detail-policy" class="policy" hidden><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
+      <section id="detail-controls" class="operation-record" hidden><h3 class="section-title">Non-negotiable controls</h3><ul id="control-list"></ul></section>
+      <section id="detail-audit" class="operation-record" hidden><h3 class="section-title">Operation audit</h3><pre id="audit-log"></pre></section>
       <div class="run-area"><button id="run" class="run-button" type="button">Run Jev</button><p id="run-status" class="run-status">Uses TYPESAFE_API_KEY on this machine.</p></div>
       <div id="detail-command" class="command"></div>
     </div>
@@ -344,6 +405,8 @@ INDEX_HTML = r"""<!doctype html>
     const detail = document.querySelector("#detail");
     const signals = document.querySelector("#detail-signals");
     const policy = document.querySelector("#detail-policy");
+    const controlsPanel = document.querySelector("#detail-controls");
+    const auditPanel = document.querySelector("#detail-audit");
     const runButton = document.querySelector("#run");
     const runStatus = document.querySelector("#run-status");
 
@@ -393,6 +456,16 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelector("#detail-meta").textContent = `Owner: ${result.decision.owner} | policy confidence: ${percent(result.decision.confidence)}`;
       policy.classList.toggle("fallback", result.decision.fallback);
       policy.hidden = false;
+      const controlList = document.querySelector("#control-list");
+      controlList.replaceChildren();
+      (result.controls || []).forEach((control) => controlList.append(element("li", "", control)));
+      controlsPanel.hidden = !result.controls?.length;
+      const auditHeader = result.correlation_id
+        ? `${result.correlation_id} | policy ${result.policy_version} | state ${result.state_fingerprint}\n`
+        : "";
+      document.querySelector("#audit-log").textContent = auditHeader + (result.audit || [])
+        .map((entry) => `${entry.sequence}. ${entry.event} | ${entry.detail}`).join("\n");
+      auditPanel.hidden = !result.audit?.length;
     }
 
     function openDetail(demo) {
@@ -404,9 +477,13 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelector("#signals-heading").textContent = "Question contract";
       renderQuestions(demo.questions);
       policy.hidden = true;
+      controlsPanel.hidden = true;
+      auditPanel.hidden = true;
       runButton.disabled = false;
-      runButton.textContent = "Run Jev";
-      runStatus.textContent = "Uses TYPESAFE_API_KEY on this machine.";
+      runButton.textContent = demo.stage_count > 1 ? `Run ${demo.stage_count} Jev stages` : "Run Jev";
+      runStatus.textContent = demo.stage_count > 1
+        ? "Runs a staged, live evaluation. No operational credentials are available."
+        : "Uses TYPESAFE_API_KEY on this machine.";
       detail.showModal();
     }
 
@@ -444,7 +521,7 @@ INDEX_HTML = r"""<!doctype html>
         const head = element("div", "card-head");
         const titleWrap = element("div");
         titleWrap.append(element("span", "eyebrow", demo.group), element("h2", "", demo.title));
-        head.append(titleWrap, element("span", "live-badge", "LIVE"));
+        head.append(titleWrap, element("span", "live-badge", demo.stage_count > 1 ? `${demo.stage_count} STAGES` : "LIVE"));
         const body = element("div", "card-body", demo.description);
         const foot = element("div", "card-foot");
         foot.append(element("div", "outcome", "OPEN BAY >"));

@@ -27,7 +27,7 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
-testpaths = ["tests", "critical", "fun"]
+testpaths = ["tests", "critical", "berserk", "fun"]
 pythonpath = ["."]
 markers = [
     "live: calls the real TypeSafe API and requires TYPESAFE_API_KEY",
@@ -43,10 +43,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
-include = ["src", "critical", "fun", "tests"]
+include = ["src", "critical", "berserk", "fun", "tests"]
 
 [tool.coverage.run]
-source = ["src", "critical", "fun"]
+source = ["src", "critical", "berserk", "fun"]
 omit = ["*/test_*.py"]
 
 [tool.coverage.report]

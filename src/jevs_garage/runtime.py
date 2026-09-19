@@ -75,7 +75,9 @@ def require_live_api_key() -> None:
         raise SystemExit("TYPESAFE_API_KEY is missing. Copy .env.example to .env and add your key.")
 
 
-def _answer_rows(response: SystemOneResponse) -> list[tuple[str, str, float]]:
+def answer_rows(response: SystemOneResponse) -> list[tuple[str, str, float]]:
+    """Convert typed SDK answers into display-ready rows."""
+
     rows: list[tuple[str, str, float]] = []
     for name, answer in response.answers.items():
         if isinstance(answer, ChoiceAnswer):
@@ -87,7 +89,9 @@ def _answer_rows(response: SystemOneResponse) -> list[tuple[str, str, float]]:
     return rows
 
 
-def _meter(value: float, width: int = 18) -> Text:
+def confidence_meter(value: float, width: int = 18) -> Text:
+    """Render a bounded confidence meter for terminal dashboards."""
+
     bounded = max(0.0, min(value, 1.0))
     filled = round(bounded * width)
     color = "green" if bounded >= 0.8 else "yellow" if bounded >= 0.6 else "red"
@@ -122,8 +126,8 @@ def render_demo(
     signals.add_column("Question", style="bold")
     signals.add_column("Typed answer")
     signals.add_column("Certainty", ratio=2)
-    for name, value, confidence in _answer_rows(response):
-        signals.add_row(name.replace("_", " "), value, _meter(confidence))
+    for name, value, confidence in answer_rows(response):
+        signals.add_row(name.replace("_", " "), value, confidence_meter(confidence))
 
     status = "SAFE FALLBACK" if decision.fallback else "POLICY ACTION"
     status_color = "yellow" if decision.fallback else accent
