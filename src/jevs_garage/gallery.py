@@ -11,6 +11,7 @@ import json
 import sys
 import threading
 import webbrowser
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +24,7 @@ from urllib.parse import unquote, urlsplit
 from typesafe_sdk import (
     ChoiceAnswer,
     NoulAnswer,
+    Question,
     Questions,
     ScoreAnswer,
     SystemOneResponse,
@@ -165,6 +167,10 @@ def validate_demo_state(demo_id: str, state: Any, root: Path = REPOSITORY_ROOT) 
     module = _load_demo(group, path)
     errors: list[str] = []
     _validate_shape(state, module.STATE, "$", errors)
+    semantic_validator = getattr(module, "validate_state", None)
+    if not errors and callable(semantic_validator):
+        validator = cast(Callable[[dict[str, Any]], list[str]], semantic_validator)
+        errors.extend(validator(state))
     return errors
 
 
@@ -276,7 +282,8 @@ def run_demo(
     require_live_api_key()
     report_progress(on_progress, "decision", "Jev decision", "running")
     with TypeSafeClient(timeout=30) as client:
-        response = client.system_one(state=state, questions=simple.QUESTIONS)
+        questions = cast(Mapping[str, Question], simple.QUESTIONS)
+        response = client.system_one(state=state, questions=questions)
     report_progress(on_progress, "decision", "Jev decision", "completed", f"model={response.model}")
     report_progress(on_progress, "policy", "Deterministic policy", "running")
     decision = simple.decide(signals_from_response(response, simple.SIGNALS))
@@ -470,6 +477,8 @@ INDEX_HTML = r"""<!doctype html>
     .stage-step.completed .stage-dot { background: #17836a; }
     .stage-step.failed { color: #a82720; border-color: #ce4538; }
     .stage-step.failed .stage-dot { background: #ce4538; }
+    .stage-step.skipped { color: #77756e; border-style: dashed; opacity: .72; }
+    .stage-step.skipped .stage-dot { background: transparent; border: 2px solid #8d8a82; }
     @keyframes pulse { to { transform: scale(1.45); opacity: .55; } }
     .operation-record { grid-column: 1 / -1; padding: 17px; border: 2px solid var(--ink); background: var(--panel); }
     .operation-record ul { margin: 0; padding-left: 20px; line-height: 1.55; }

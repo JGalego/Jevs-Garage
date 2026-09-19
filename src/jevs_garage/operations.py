@@ -78,7 +78,7 @@ class ProgressEvent:
 
     key: str
     label: str
-    status: Literal["running", "completed", "failed"]
+    status: Literal["running", "completed", "failed", "skipped"]
     detail: str = ""
 
 
@@ -89,7 +89,7 @@ def report_progress(
     callback: ProgressCallback | None,
     key: str,
     label: str,
-    status: Literal["running", "completed", "failed"],
+    status: Literal["running", "completed", "failed", "skipped"],
     detail: str = "",
 ) -> None:
     """Emit progress when a caller requested streaming updates."""

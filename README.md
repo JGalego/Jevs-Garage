@@ -35,7 +35,7 @@ cp .env.example .env
 just gallery
 ```
 
-The gallery opens locally with an editable **Run input** JSON document for every bay. It validates JSON syntax, required fields, nested shape, and value types before enabling **Run Jev**, then revalidates on the server before the live call. Result colors move from red through amber to green with signal certainty. If port `8000` is occupied it tries the next available port; use `just gallery --no-browser --port 8080` to choose explicitly.
+The gallery opens locally with an editable **Run input** JSON document for every bay. It validates JSON syntax, required fields, nested shape, value types, and demo-specific limits before enabling **Run Jev**, then revalidates on the server before the live call. A command bar stays above the scrollable result, streams real stage progress, and colors signals from red through amber to green by certainty. If port `8000` is occupied it tries the next available port; use `just gallery --no-browser --port 8080` to choose explicitly.
 
 ## Critical 🔴
 
@@ -55,6 +55,16 @@ Every critical bay follows `state -> Jev -> typed result -> deterministic policy
 | [AI output verification](critical/ai-output-verification/) | Checks whether cited evidence supports an AI-authored factual claim. |
 | [Supply-chain contamination](critical/supply-chain-contamination/) | Recommends release, sampling, or quarantine for a cold-chain anomaly. |
 | [Wildfire escalation](critical/wildfire-escalation/) | Assesses spread and exposure while incident command retains public authority. |
+
+## Berserk 🟠
+
+Berserk bays are production-shaped orchestration experiments: multiple live Jev calls, branching or recursive graphs, source provenance, hard budgets, audit trails, and visual output. They remain dry-run advisory systems with no credentials for the actions they recommend.
+
+| Bay | What it demonstrates |
+| --- | --- |
+| [Global payment incident](berserk/global-payment-incident/) | Two-stage diagnosis and intervention challenge with immutable snapshots and dual approval. |
+| [Meta-Jev situation room](berserk/meta-jev-situation-room/) | Four real public feeds fan through specialists, critics, an arbiter, and a stability pass. |
+| [Infinity of Jevs](berserk/infinity-of-jevs/) | A bounded recursive council feeds typed outputs back through parallel roles until convergence, cycle, or budget. |
 
 ## Fun 🟢
 
@@ -96,7 +106,7 @@ uv run pytest
 just test
 ```
 
-Live contract tests call the TypeSafe API for all 22 demos and validate the returned answer types and probability invariants:
+Live contract tests call the TypeSafe API for all 25 demos and validate every returned answer type and probability invariant:
 
 ```bash
 uv run pytest --live
@@ -130,8 +140,9 @@ critical/<demo>/
 	demo.py         state, SDK questions, policy, terminal UI
 	test_<demo>.py  question contract and deterministic policy boundaries
 
+berserk/<demo>/   staged or recursive Jev graphs, live data, provenance, charts
 fun/<demo>/       same tiny, self-contained shape
-src/jevs_garage/  shared rendering and gallery only
+src/jevs_garage/  shared rendering, operation records, and gallery
 tests/test_live.py real API contract coverage for every demo
 ```
 

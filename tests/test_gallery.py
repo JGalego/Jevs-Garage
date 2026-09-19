@@ -15,18 +15,21 @@ def test_gallery_discovers_every_demo() -> None:
     demos = collect_demos()
     groups = [demo["group"] for demo in demos]
 
-    assert len(demos) == 24
+    assert len(demos) == 25
     assert groups.count("critical") == 12
-    assert groups.count("berserk") == 2
+    assert groups.count("berserk") == 3
     assert groups.count("fun") == 10
     assert sorted(len(demo["questions"]) for demo in demos).count(6) == 1
     assert sorted(len(demo["questions"]) for demo in demos).count(24) == 1
+    assert sorted(len(demo["questions"]) for demo in demos).count(48) == 1
     assert sorted(len(demo["questions"]) for demo in demos).count(3) == 22
     assert all("signals" not in demo and "decision" not in demo for demo in demos)
     payment = next(demo for demo in demos if demo["id"] == "berserk/global-payment-incident")
     meta = next(demo for demo in demos if demo["id"] == "berserk/meta-jev-situation-room")
+    infinity = next(demo for demo in demos if demo["id"] == "berserk/infinity-of-jevs")
     assert len(payment["progress_steps"]) == 3
     assert len(meta["progress_steps"]) == 13
+    assert len(infinity["progress_steps"]) == 18
     assert all(demo["progress_steps"] for demo in demos)
 
 
@@ -48,7 +51,7 @@ def test_gallery_shell_and_api_are_served() -> None:
 
     assert html == INDEX_HTML
     assert "Jev's Garage" in html
-    assert len(demos) == 24
+    assert len(demos) == 25
     assert "Berserk" in html
     assert demos[0]["questions"][0]["type"] in {"choice", "score", "noul"}
 
@@ -75,6 +78,14 @@ def test_input_contract_reports_precise_shape_errors() -> None:
     assert "$.device.account_age_days: required field is missing" in errors
     assert "$.amount_usd: expected float, got str" in errors
     assert "$.unexpected: unknown field" in errors
+
+
+def test_input_contract_runs_demo_semantic_validation() -> None:
+    demo = next(item for item in collect_demos() if item["id"] == "berserk/infinity-of-jevs")
+    state = deepcopy(demo["state"])
+    state["max_rounds"] = 99
+
+    assert "$.max_rounds: must be between 1 and 3" in validate_demo_state(demo["id"], state)
 
 
 def test_validation_endpoint_checks_json_before_any_live_call() -> None:
