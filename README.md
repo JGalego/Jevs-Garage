@@ -65,6 +65,7 @@ Berserk bays are production-shaped orchestration experiments: multiple live Jev 
 | [Global payment incident](berserk/global-payment-incident/) | Two-stage diagnosis and intervention challenge with immutable snapshots and dual approval. |
 | [Meta-Jev situation room](berserk/meta-jev-situation-room/) | Four real public feeds fan through specialists, critics, an arbiter, and a stability pass. |
 | [Infinity of Jevs](berserk/infinity-of-jevs/) | A bounded recursive council feeds typed outputs back through parallel roles until convergence, cycle, or budget. |
+| [Counterfactual City](berserk/counterfactual-city/) | Identical cities hide opposite futures: 23 live judgments, one chosen experiment, 16 sealed forecasts, an exact traffic oracle, and adversarial vetoes. |
 
 ## Fun 🟢
 
@@ -106,7 +107,7 @@ uv run pytest
 just test
 ```
 
-Live contract tests call the TypeSafe API for all 25 demos and validate every returned answer type and probability invariant:
+Live contract tests call the TypeSafe API for all 26 demos and validate every returned answer type and probability invariant:
 
 ```bash
 uv run pytest --live
