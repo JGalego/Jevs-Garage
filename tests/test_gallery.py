@@ -162,3 +162,22 @@ def test_gallery_streams_real_stage_progress_in_the_sticky_command_bar() -> None
 def test_run_button_label_does_not_include_stage_count() -> None:
     assert 'runButton.textContent = "Run Jev"' in INDEX_HTML
     assert "Run ${demo.stage_count}" not in INDEX_HTML
+
+
+def test_gallery_uses_compact_accessible_result_tabs() -> None:
+    for name in ("input", "signals", "visuals", "decision"):
+        assert f'data-tab="{name}"' in INDEX_HTML
+        assert f'data-panel="{name}"' in INDEX_HTML
+    assert 'role="tablist"' in INDEX_HTML
+    assert "function selectTab(name, focus = false)" in INDEX_HTML
+    assert 'selectTab("signals")' in INDEX_HTML
+
+
+def test_gallery_charts_support_zoom_pan_and_reset() -> None:
+    assert 'aria-label", "Zoom in"' in INDEX_HTML
+    assert 'aria-label", "Zoom out"' in INDEX_HTML
+    assert 'aria-label", "Reset zoom and pan"' in INDEX_HTML
+    assert 'canvas.addEventListener("wheel"' in INDEX_HTML
+    assert 'canvas.addEventListener("pointermove"' in INDEX_HTML
+    assert 'canvas.addEventListener("dblclick", resetView)' in INDEX_HTML
+    assert "viewport.scale = Math.max(.65, Math.min(3, scale))" in INDEX_HTML

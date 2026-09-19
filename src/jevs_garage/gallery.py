@@ -431,7 +431,16 @@ INDEX_HTML = r"""<!doctype html>
       width: 38px; height: 38px; border: 2px solid #fff; background: transparent; color: #fff;
       cursor: pointer; font-size: 25px; line-height: 1;
     }
-    .detail { max-height: calc(100vh - 210px); padding: 24px; overflow: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .85fr); gap: 24px; }
+    .detail { max-height: calc(100vh - 258px); padding: 24px; overflow: auto; }
+    .detail-tabs { display: flex; gap: 0; padding: 0 24px; border-bottom: 2px solid var(--ink); background: var(--panel); overflow-x: auto; }
+    .detail-tab { flex: 0 0 auto; min-height: 42px; padding: 9px 15px; border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; font-weight: 800; }
+    .detail-tab:last-child { border-right: 1px solid var(--line); }
+    .detail-tab[aria-selected="true"] { color: var(--ink); background: var(--yellow); }
+    .detail-tab:disabled { cursor: not-allowed; opacity: .42; }
+    .tab-panel { min-width: 0; }
+    .tab-panel[hidden] { display: none; }
+    .input-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .8fr); gap: 24px; }
+    .results-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
     .section-title { margin: 0 0 10px; font: 800 12px/1 "DejaVu Sans Mono", monospace; text-transform: uppercase; color: var(--muted); }
     pre { margin: 0; max-height: 310px; overflow: auto; padding: 16px; background: #272a26; color: #f7f2e8; font: 12px/1.55 "DejaVu Sans Mono", monospace; }
     .editor-shell { display: grid; min-width: 0; }
@@ -458,12 +467,12 @@ INDEX_HTML = r"""<!doctype html>
     .signal-name { font-weight: 800; text-transform: capitalize; }
     .signal-type { color: var(--blue); font: 700 11px/1 "DejaVu Sans Mono", monospace; text-transform: uppercase; }
     .signal-value { margin: 6px 0 7px; font: 700 13px/1.3 "DejaVu Sans Mono", monospace; }
-    .policy { grid-column: 1 / -1; padding: 18px; border: 2px solid var(--fun); background: var(--panel); }
+    .policy { padding: 18px; border: 2px solid var(--fun); background: var(--panel); }
     .policy.fallback { border-color: #aa7200; }
     .policy strong { display: block; margin-bottom: 7px; font: 800 16px/1.35 "DejaVu Sans Mono", monospace; }
     .policy p { margin: 5px 0; line-height: 1.5; }
     .policy-meta { color: var(--muted); font-size: 12px; }
-    .command { grid-column: 1 / -1; padding: 12px 14px; background: #ded9cc; font: 12px/1.4 "DejaVu Sans Mono", monospace; overflow-x: auto; }
+    .command { margin-top: 16px; padding: 12px 14px; background: #ded9cc; font: 12px/1.4 "DejaVu Sans Mono", monospace; overflow-x: auto; }
     .run-area { padding: 12px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); background: var(--panel); }
     .run-button { padding: 11px 16px; border: 2px solid var(--ink); background: var(--yellow); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); cursor: pointer; font-weight: 800; }
     .run-button:disabled { cursor: wait; opacity: .65; }
@@ -480,26 +489,38 @@ INDEX_HTML = r"""<!doctype html>
     .stage-step.skipped { color: #77756e; border-style: dashed; opacity: .72; }
     .stage-step.skipped .stage-dot { background: transparent; border: 2px solid #8d8a82; }
     @keyframes pulse { to { transform: scale(1.45); opacity: .55; } }
-    .operation-record { grid-column: 1 / -1; padding: 17px; border: 2px solid var(--ink); background: var(--panel); }
+    .operation-record { padding: 17px; border: 2px solid var(--ink); background: var(--panel); }
     .operation-record ul { margin: 0; padding-left: 20px; line-height: 1.55; }
     .operation-record pre { max-height: 220px; }
     .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
     .source-receipt { padding: 12px; border: 1px solid var(--line); background: var(--paper); }
     .source-receipt strong { display: block; margin-bottom: 6px; }
     .source-receipt span { display: block; color: var(--muted); font: 11px/1.45 "DejaVu Sans Mono", monospace; overflow-wrap: anywhere; }
-    .visualizations { grid-column: 1 / -1; }
+    .visualizations { min-width: 0; }
     .visual-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; }
     .visual-card { min-width: 0; padding: 14px; border: 2px solid var(--ink); background: var(--panel); }
-    .visual-card h4 { margin: 0 0 10px; font: 800 13px/1.25 "DejaVu Sans Mono", monospace; }
-    .visual-card canvas { display: block; width: 100%; height: 260px; background: #f8f5ed; }
+    .visual-card.pipeline { grid-column: 1 / -1; }
+    .visual-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .visual-card h4 { margin: 0; font: 800 13px/1.25 "DejaVu Sans Mono", monospace; }
+    .chart-tools { display: flex; align-items: center; gap: 4px; }
+    .chart-tools button { width: 30px; height: 28px; padding: 0; border: 1px solid var(--ink); background: var(--paper); cursor: pointer; font-weight: 900; }
+    .chart-tools button:hover, .chart-tools button:focus-visible { background: var(--yellow); }
+    .zoom-readout { min-width: 42px; color: var(--muted); text-align: center; font: 700 10px/1 "DejaVu Sans Mono", monospace; }
+    .chart-viewport { position: relative; overflow: hidden; border: 1px solid var(--line); background: #f8f5ed; }
+    .visual-card canvas { display: block; width: 100%; height: 280px; cursor: grab; touch-action: none; }
+    .visual-card.pipeline canvas { height: 330px; }
+    .visual-card canvas.dragging { cursor: grabbing; }
+    .chart-hint { position: absolute; right: 8px; bottom: 6px; margin: 0; color: #77756e; background: rgba(248, 245, 237, .88); font: 9px/1.2 "DejaVu Sans Mono", monospace; pointer-events: none; }
     [hidden] { display: none !important; }
     .empty { padding: 48px 0; color: var(--muted); font-weight: 700; }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; }
       .counter { display: none; }
       .toolbar { align-items: stretch; flex-direction: column; }
-      .detail { max-height: calc(100vh - 250px); grid-template-columns: 1fr; }
-      .policy, .command { grid-column: 1; }
+      .detail-tabs { padding: 0 8px; overflow: visible; }
+      .detail-tab { flex: 1 1 25%; min-width: 0; padding: 9px 4px; font-size: 12px; }
+      .detail { max-height: calc(100vh - 292px); }
+      .input-layout { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) { .demo-card { transition: none; } }
   </style>
@@ -534,26 +555,42 @@ INDEX_HTML = r"""<!doctype html>
       <p id="run-status" class="run-status">Input must pass validation before a live call.</p>
       <div id="stage-tracker" class="stage-tracker" aria-label="Run stage progress"></div>
     </div>
+    <div id="detail-tabs" class="detail-tabs" role="tablist" aria-label="Bay details">
+      <button id="tab-input" class="detail-tab" type="button" role="tab" aria-selected="true" aria-controls="panel-input" data-tab="input">Input</button>
+      <button id="tab-signals" class="detail-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-signals" data-tab="signals">Signals</button>
+      <button id="tab-visuals" class="detail-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-visuals" data-tab="visuals" disabled>Visuals</button>
+      <button id="tab-decision" class="detail-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-decision" data-tab="decision" disabled>Decision</button>
+    </div>
     <div class="detail">
-      <section>
-        <h3 class="section-title">Run input</h3>
-        <div class="editor-shell">
-          <pre id="input-highlight" class="input-highlight" aria-hidden="true"></pre>
-          <textarea id="detail-state" class="input-editor" aria-label="Editable JSON run input" spellcheck="false" wrap="off"></textarea>
+      <section id="panel-input" class="tab-panel input-layout" role="tabpanel" aria-labelledby="tab-input" data-panel="input">
+        <div>
+          <h3 class="section-title">Run input</h3>
+          <div class="editor-shell">
+            <pre id="input-highlight" class="input-highlight" aria-hidden="true"></pre>
+            <textarea id="detail-state" class="input-editor" aria-label="Editable JSON run input" spellcheck="false" wrap="off"></textarea>
+          </div>
+          <div class="input-tools">
+            <button id="format-input" type="button">Format JSON</button>
+            <button id="reset-input" type="button">Reset</button>
+            <span id="input-status" class="input-status pending" role="status">Checking input...</span>
+          </div>
+          <div id="detail-command" class="command"></div>
         </div>
-        <div class="input-tools">
-          <button id="format-input" type="button">Format JSON</button>
-          <button id="reset-input" type="button">Reset</button>
-          <span id="input-status" class="input-status pending" role="status">Checking input...</span>
-        </div>
+        <section><h3 class="section-title">Question contract</h3><div id="detail-questions" class="signal-list"></div></section>
       </section>
-      <section><h3 id="signals-heading" class="section-title">Question contract</h3><div id="detail-signals" class="signal-list"></div></section>
-      <section id="detail-policy" class="policy" hidden><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
-      <section id="detail-sources" class="operation-record" hidden><h3 class="section-title">Live source provenance</h3><div id="source-list" class="source-grid"></div></section>
-      <section id="detail-visualizations" class="visualizations" hidden><h3 class="section-title">Live data visualizations</h3><div id="visualization-grid" class="visual-grid"></div></section>
-      <section id="detail-controls" class="operation-record" hidden><h3 class="section-title">Non-negotiable controls</h3><ul id="control-list"></ul></section>
-      <section id="detail-audit" class="operation-record" hidden><h3 class="section-title">Operation audit</h3><pre id="audit-log"></pre></section>
-      <div id="detail-command" class="command"></div>
+      <section id="panel-signals" class="tab-panel results-layout" role="tabpanel" aria-labelledby="tab-signals" data-panel="signals" hidden>
+        <h3 id="signals-heading" class="section-title">Run Jev to inspect typed signals</h3>
+        <div id="detail-signals" class="signal-list"></div>
+      </section>
+      <section id="panel-visuals" class="tab-panel" role="tabpanel" aria-labelledby="tab-visuals" data-panel="visuals" hidden>
+        <section id="detail-visualizations" class="visualizations" hidden><h3 class="section-title">Live data visualizations</h3><div id="visualization-grid" class="visual-grid"></div></section>
+      </section>
+      <section id="panel-decision" class="tab-panel results-layout" role="tabpanel" aria-labelledby="tab-decision" data-panel="decision" hidden>
+        <section id="detail-policy" class="policy" hidden><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
+        <section id="detail-sources" class="operation-record" hidden><h3 class="section-title">Live source provenance</h3><div id="source-list" class="source-grid"></div></section>
+        <section id="detail-controls" class="operation-record" hidden><h3 class="section-title">Non-negotiable controls</h3><ul id="control-list"></ul></section>
+        <section id="detail-audit" class="operation-record" hidden><h3 class="section-title">Operation audit</h3><pre id="audit-log"></pre></section>
+      </section>
     </div>
   </dialog>
   <script>
@@ -561,6 +598,10 @@ INDEX_HTML = r"""<!doctype html>
     const grid = document.querySelector("#grid");
     const status = document.querySelector("#status");
     const detail = document.querySelector("#detail");
+    const detailBody = document.querySelector(".detail");
+    const tabButtons = [...document.querySelectorAll(".detail-tab")];
+    const tabPanels = [...document.querySelectorAll(".tab-panel")];
+    const questions = document.querySelector("#detail-questions");
     const signals = document.querySelector("#detail-signals");
     const policy = document.querySelector("#detail-policy");
     const sourcesPanel = document.querySelector("#detail-sources");
@@ -575,6 +616,7 @@ INDEX_HTML = r"""<!doctype html>
     const runButton = document.querySelector("#run");
     const runStatus = document.querySelector("#run-status");
     const stageTracker = document.querySelector("#stage-tracker");
+    const chartRedraws = new Set();
     let validationTimer;
     let validationVersion = 0;
 
@@ -654,22 +696,41 @@ INDEX_HTML = r"""<!doctype html>
       });
     }
 
+    function selectTab(name, focus = false) {
+      tabButtons.forEach((button) => {
+        const active = button.dataset.tab === name;
+        button.setAttribute("aria-selected", String(active));
+        button.tabIndex = active ? 0 : -1;
+        if (active && focus) button.focus();
+      });
+      tabPanels.forEach((panel) => { panel.hidden = panel.dataset.panel !== name; });
+      detailBody.scrollTop = 0;
+      if (name === "visuals") requestAnimationFrame(() => chartRedraws.forEach((redraw) => redraw()));
+    }
+
+    function setResultTabs(result) {
+      document.querySelector("#tab-signals").disabled = false;
+      document.querySelector("#tab-decision").disabled = false;
+      document.querySelector("#tab-visuals").disabled = !(result.visualizations || []).length;
+    }
+
     function renderQuestions(questions) {
-      signals.replaceChildren();
+      const target = document.querySelector("#detail-questions");
+      target.replaceChildren();
       questions.forEach((question) => {
         const row = element("div", "signal-row");
         const top = element("div", "signal-top");
         top.append(element("span", "signal-name", question.name), element("span", "signal-type", question.type));
         const instructions = typeof question.instructions === "string" ? question.instructions : JSON.stringify(question.instructions);
         row.append(top, element("div", "signal-value", instructions));
-        signals.append(row);
+        target.append(row);
       });
     }
 
     function canvasContext(canvas) {
       const ratio = Math.min(devicePixelRatio || 1, 2);
       const width = Math.max(360, Math.floor(canvas.getBoundingClientRect().width));
-      const height = 260;
+      const height = Math.max(240, Math.floor(canvas.getBoundingClientRect().height));
       canvas.width = width * ratio;
       canvas.height = height * ratio;
       const context = canvas.getContext("2d");
@@ -677,6 +738,20 @@ INDEX_HTML = r"""<!doctype html>
       context.font = '11px "DejaVu Sans Mono", monospace';
       context.lineWidth = 1.5;
       return { context, width, height };
+    }
+
+    function drawVisualization(canvas, visualization, viewport) {
+      const { context, width, height } = canvasContext(canvas);
+      context.save();
+      context.translate(viewport.offsetX, viewport.offsetY);
+      context.translate(width / 2, height / 2);
+      context.scale(viewport.scale, viewport.scale);
+      context.translate(-width / 2, -height / 2);
+      if (visualization.kind === "bar") drawBar(context, width, height, visualization.points);
+      else if (visualization.kind === "line") drawLine(context, width, height, visualization.points);
+      else if (visualization.kind === "map") drawMap(context, width, height, visualization.points);
+      else if (visualization.kind === "pipeline") drawPipeline(context, width, height, visualization.points);
+      context.restore();
     }
 
     function drawBar(context, width, height, points) {
@@ -810,16 +885,84 @@ INDEX_HTML = r"""<!doctype html>
 
     function renderVisualizations(visualizations) {
       visualizationGrid.replaceChildren();
+      chartRedraws.clear();
       visualizations.forEach((visualization) => {
-        const card = element("article", "visual-card");
+        const card = element("article", `visual-card ${visualization.kind}`);
+        const head = element("div", "visual-head");
+        const tools = element("div", "chart-tools");
+        const zoomOut = element("button", "", "-");
+        const reset = element("button", "", "1:1");
+        const zoomIn = element("button", "", "+");
+        const readout = element("span", "zoom-readout", "100%");
+        zoomOut.type = reset.type = zoomIn.type = "button";
+        zoomOut.title = "Zoom out";
+        zoomOut.setAttribute("aria-label", "Zoom out");
+        reset.title = "Reset zoom and pan";
+        reset.setAttribute("aria-label", "Reset zoom and pan");
+        zoomIn.title = "Zoom in";
+        zoomIn.setAttribute("aria-label", "Zoom in");
+        tools.append(zoomOut, reset, zoomIn, readout);
+        head.append(element("h4", "", visualization.title), tools);
+        const viewportElement = element("div", "chart-viewport");
         const canvas = document.createElement("canvas");
-        card.append(element("h4", "", visualization.title), canvas);
+        canvas.tabIndex = 0;
+        canvas.setAttribute("role", "img");
+        canvas.setAttribute("aria-label", `${visualization.title}. Use plus, minus, zero, mouse wheel, or drag to explore.`);
+        viewportElement.append(canvas, element("p", "chart-hint", "wheel / drag / +/- / 0"));
+        card.append(head, viewportElement);
         visualizationGrid.append(card);
-        const { context, width, height } = canvasContext(canvas);
-        if (visualization.kind === "bar") drawBar(context, width, height, visualization.points);
-        else if (visualization.kind === "line") drawLine(context, width, height, visualization.points);
-        else if (visualization.kind === "map") drawMap(context, width, height, visualization.points);
-        else if (visualization.kind === "pipeline") drawPipeline(context, width, height, visualization.points);
+        const viewport = { scale: 1, offsetX: 0, offsetY: 0, dragging: false, startX: 0, startY: 0 };
+        const redraw = () => {
+          drawVisualization(canvas, visualization, viewport);
+          readout.textContent = `${Math.round(viewport.scale * 100)}%`;
+        };
+        chartRedraws.add(redraw);
+        const setScale = (scale) => {
+          viewport.scale = Math.max(.65, Math.min(3, scale));
+          redraw();
+        };
+        const resetView = () => {
+          viewport.scale = 1;
+          viewport.offsetX = 0;
+          viewport.offsetY = 0;
+          redraw();
+        };
+        zoomOut.addEventListener("click", () => setScale(viewport.scale / 1.25));
+        zoomIn.addEventListener("click", () => setScale(viewport.scale * 1.25));
+        reset.addEventListener("click", resetView);
+        canvas.addEventListener("wheel", (event) => {
+          event.preventDefault();
+          setScale(viewport.scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12));
+        }, { passive: false });
+        canvas.addEventListener("pointerdown", (event) => {
+          viewport.dragging = true;
+          viewport.startX = event.clientX - viewport.offsetX;
+          viewport.startY = event.clientY - viewport.offsetY;
+          canvas.classList.add("dragging");
+          canvas.setPointerCapture(event.pointerId);
+        });
+        canvas.addEventListener("pointermove", (event) => {
+          if (!viewport.dragging) return;
+          viewport.offsetX = event.clientX - viewport.startX;
+          viewport.offsetY = event.clientY - viewport.startY;
+          redraw();
+        });
+        const endDrag = (event) => {
+          viewport.dragging = false;
+          canvas.classList.remove("dragging");
+          if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+        };
+        canvas.addEventListener("pointerup", endDrag);
+        canvas.addEventListener("pointercancel", endDrag);
+        canvas.addEventListener("dblclick", resetView);
+        canvas.addEventListener("keydown", (event) => {
+          if (event.key === "+" || event.key === "=") setScale(viewport.scale * 1.25);
+          else if (event.key === "-") setScale(viewport.scale / 1.25);
+          else if (event.key === "0") resetView();
+          else return;
+          event.preventDefault();
+        });
+        redraw();
         canvas.title = visualization.points.map((point) => `${point.label}: ${point.detail || point.value}`).join("\n");
       });
       visualizationsPanel.hidden = !visualizations.length;
@@ -848,6 +991,7 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelector("#detail-meta").textContent = `Owner: ${result.decision.owner} | policy confidence: ${percent(result.decision.confidence)}`;
       policy.classList.toggle("fallback", result.decision.fallback);
       policy.hidden = false;
+      setResultTabs(result);
       renderSources(result.sources || []);
       renderVisualizations(result.visualizations || []);
       const controlList = document.querySelector("#control-list");
@@ -870,14 +1014,19 @@ INDEX_HTML = r"""<!doctype html>
       inputEditor.value = JSON.stringify(demo.state, null, 2);
       renderJsonHighlight();
       document.querySelector("#detail-command").textContent = demo.command;
-      document.querySelector("#signals-heading").textContent = "Question contract";
       renderQuestions(demo.questions);
+      signals.replaceChildren();
+      document.querySelector("#signals-heading").textContent = "Run Jev to inspect typed signals";
       policy.hidden = true;
       sourcesPanel.hidden = true;
       visualizationsPanel.hidden = true;
       controlsPanel.hidden = true;
       auditPanel.hidden = true;
       initializeStageTracker(demo.progress_steps);
+      document.querySelector("#tab-signals").disabled = true;
+      document.querySelector("#tab-visuals").disabled = true;
+      document.querySelector("#tab-decision").disabled = true;
+      selectTab("input");
       runButton.disabled = true;
       runButton.textContent = "Run Jev";
       runStatus.textContent = "Input must pass validation before a live call.";
@@ -972,6 +1121,7 @@ INDEX_HTML = r"""<!doctype html>
         }
         processLine(buffer);
         if (!resultReceived) throw new Error("Run ended without a final result");
+        selectTab("signals");
         runStatus.textContent = "Live result received. No side effect was executed.";
         runButton.textContent = "Run again";
       } catch (error) {
@@ -1024,6 +1174,21 @@ INDEX_HTML = r"""<!doctype html>
       setPressed("[data-group]", "group", view.group);
       render();
     }));
+    tabButtons.forEach((button, index) => {
+      button.addEventListener("click", () => { if (!button.disabled) selectTab(button.dataset.tab); });
+      button.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const enabled = tabButtons.filter((candidate) => !candidate.disabled);
+        const current = enabled.indexOf(button);
+        let next = current;
+        if (event.key === "ArrowRight") next = (current + 1) % enabled.length;
+        if (event.key === "ArrowLeft") next = (current - 1 + enabled.length) % enabled.length;
+        if (event.key === "Home") next = 0;
+        if (event.key === "End") next = enabled.length - 1;
+        selectTab(enabled[next].dataset.tab, true);
+      });
+    });
     inputEditor.addEventListener("input", () => {
       clearTimeout(validationTimer);
       renderJsonHighlight();

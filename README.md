@@ -35,7 +35,7 @@ cp .env.example .env
 just gallery
 ```
 
-The gallery opens locally with an editable **Run input** JSON document for every bay. It validates JSON syntax, required fields, nested shape, value types, and demo-specific limits before enabling **Run Jev**, then revalidates on the server before the live call. A command bar stays above the scrollable result, streams real stage progress, and colors signals from red through amber to green by certainty. If port `8000` is occupied it tries the next available port; use `just gallery --no-browser --port 8080` to choose explicitly.
+The gallery opens locally with compact **Input**, **Signals**, **Visuals**, and **Decision** tabs. Its editable Run input validates JSON syntax, required fields, nested shape, value types, and demo-specific limits before enabling **Run Jev**, then revalidates on the server before the live call. A command bar stays above the tab content and streams real stage progress. Signals move from red through amber to green by certainty; charts support `+`/`-`, `1:1` reset, mouse-wheel zoom, and drag-to-pan. If port `8000` is occupied the server tries the next available port; use `just gallery --no-browser --port 8080` to choose explicitly.
 
 ## Critical 🔴
 
