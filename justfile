@@ -45,9 +45,9 @@ demo-live demo="critical/fraud-screening":
     @test -n "${TYPESAFE_API_KEY:-}" || { echo "TYPESAFE_API_KEY is missing; add it to .env." >&2; exit 1; }
     uv run python "{{demo}}/demo.py" --live
 
-# Launch the local visual gallery.
-gallery:
-    uv run garage
+# Launch the local visual gallery; pass `--no-browser --port 8080` for options.
+gallery *args:
+    uv run garage {{args}}
 
 # Reproduce the offline GitHub Actions gate from a locked environment.
 ci: setup check
