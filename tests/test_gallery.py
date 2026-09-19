@@ -157,3 +157,8 @@ def test_gallery_streams_real_stage_progress_in_the_sticky_command_bar() -> None
     assert "application/x-ndjson" in INDEX_HTML
     assert "/stream`" in INDEX_HTML
     assert INDEX_HTML.index('class="run-area"') < INDEX_HTML.index('class="detail"')
+
+
+def test_run_button_label_does_not_include_stage_count() -> None:
+    assert 'runButton.textContent = "Run Jev"' in INDEX_HTML
+    assert "Run ${demo.stage_count}" not in INDEX_HTML

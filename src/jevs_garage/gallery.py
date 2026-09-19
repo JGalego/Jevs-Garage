@@ -879,7 +879,7 @@ INDEX_HTML = r"""<!doctype html>
       auditPanel.hidden = true;
       initializeStageTracker(demo.progress_steps);
       runButton.disabled = true;
-      runButton.textContent = demo.stage_count > 1 ? `Run ${demo.stage_count} Jev stages` : "Run Jev";
+      runButton.textContent = "Run Jev";
       runStatus.textContent = "Input must pass validation before a live call.";
       detail.showModal();
       validateInput();
