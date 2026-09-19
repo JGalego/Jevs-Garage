@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Photo caption lab"
 STATE = {
@@ -29,27 +34,21 @@ QUESTIONS: Questions = {
         criteria={"true": "A pun fits the author and scene.", "false": "A pun would feel forced."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="voice", score="playfulness", noul="pun")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    voice = response.choices["voice"]
-    playfulness = response.scores["playfulness"]
-    pun = response.nouls["pun"]
-    confidence = min(voice.confidence, playfulness.confidence, abs(pun.noul - 0.5) * 2)
-    if confidence < 0.60:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.60:
         return PolicyDecision(
             action='Use the plain caption: "First coffee after the night train."',
             reason="Tone uncertainty favors a caption that cannot overreach.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="photo owner",
         )
@@ -59,22 +58,22 @@ def decide(response: SystemOneResponse) -> PolicyDecision:
         "dramatic": "At dawn, the espresso arrived.",
         "observational": "The coffee occupied roughly two percent of the table.",
     }
-    caption = captions[voice.choice]
-    if pun.noul >= 0.75:
+    caption = captions[signals.choice]
+    if signals.noul >= 0.75:
         caption = "Taking the express-o after the overnight train."
     return PolicyDecision(
         action=f'Use the caption: "{caption}"',
-        reason=f"The caption deck matched {voice.choice} voice at playfulness {playfulness.score:.1f}.",
-        confidence=confidence,
+        reason=f"The caption deck matched {signals.choice} voice at playfulness {signals.score:.1f}.",
+        confidence=signals.confidence,
         fallback=False,
         owner="photo owner",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Weekend quest board"
 STATE = {
@@ -31,27 +36,21 @@ QUESTIONS: Questions = {
         criteria={"true": "Weather and mood favor being outside.", "false": "An indoor plan fits better."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="quest_type", score="commitment", noul="outdoors")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    quest = response.choices["quest_type"]
-    commitment = response.scores["commitment"]
-    outdoors = response.nouls["outdoors"]
-    confidence = min(quest.confidence, commitment.confidence, abs(outdoors.noul - 0.5) * 2)
-    if confidence < 0.60:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.60:
         return PolicyDecision(
             action="Flip a coin: riverside photo walk or one-room local museum.",
             reason="The day has two equally plausible shapes.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="weekend crew",
         )
@@ -61,20 +60,20 @@ def decide(response: SystemOneResponse) -> PolicyDecision:
         "food": "Build a three-stop neighborhood tasting route",
         "wandering": "Take the next tram to an unfamiliar final stop and walk back",
     }
-    mode = "mostly outdoors" if outdoors.noul >= 0.70 else "with an indoor anchor"
+    mode = "mostly outdoors" if signals.noul >= 0.70 else "with an indoor anchor"
     return PolicyDecision(
-        action=f"{quests[quest.choice]}, {mode}.",
-        reason=f"The quest board matched {quest.choice} with commitment {commitment.score:.1f}.",
-        confidence=confidence,
+        action=f"{quests[signals.choice]}, {mode}.",
+        reason=f"The quest board matched {signals.choice} with commitment {signals.score:.1f}.",
+        confidence=signals.confidence,
         fallback=False,
         owner="weekend crew",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

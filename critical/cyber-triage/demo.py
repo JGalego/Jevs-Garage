@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Cyber triage console"
 STATE = {
@@ -44,59 +49,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="incident_class", score="severity", noul="active_compromise")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    incident = response.choices["incident_class"]
-    severity = response.scores["severity"]
-    compromise = response.nouls["active_compromise"]
-    confidence = min(incident.confidence, severity.confidence, abs(compromise.noul - 0.5) * 2)
-    if confidence < 0.70 or incident.choice == "unknown":
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.70 or signals.choice == "unknown":
         return PolicyDecision(
             action="Preserve telemetry and queue the alert for analyst triage.",
             reason="The evidence is not stable enough to recommend containment.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="SOC analyst",
         )
-    if compromise.noul >= 0.75 and severity.score >= 3 and incident.choice != "benign_admin":
+    if signals.noul >= 0.75 and signals.score >= 3 and signals.choice != "benign_admin":
         return PolicyDecision(
             action="Recommend host isolation and paging the incident commander; await operator approval.",
             reason="Compromise, severity, and incident class cross the containment policy boundary.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="incident commander",
         )
-    if incident.choice == "benign_admin" and severity.score < 1.5 and compromise.noul <= 0.20:
+    if signals.choice == "benign_admin" and signals.score < 1.5 and signals.noul <= 0.20:
         return PolicyDecision(
             action="Send the alert to routine administrative validation.",
             reason="Typed signals consistently support expected administrative activity.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="SOC queue",
         )
     return PolicyDecision(
         action="Prioritize an investigation without isolating the host.",
         reason="The alert is credible but remains below the containment threshold.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="tier-two analyst",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/tabletop-sidekick/demo.py
-uv run python fun/tabletop-sidekick/demo.py --scenario uncertain
-uv run python fun/tabletop-sidekick/demo.py --live
 ```

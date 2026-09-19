@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/infrastructure-monitoring/demo.py
-uv run python critical/infrastructure-monitoring/demo.py --scenario uncertain
-uv run python critical/infrastructure-monitoring/demo.py --live
 ```

@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/wildfire-escalation/demo.py
-uv run python critical/wildfire-escalation/demo.py --scenario uncertain
-uv run python critical/wildfire-escalation/demo.py --live
 ```

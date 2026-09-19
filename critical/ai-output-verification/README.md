@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/ai-output-verification/demo.py
-uv run python critical/ai-output-verification/demo.py --scenario uncertain
-uv run python critical/ai-output-verification/demo.py --live
 ```

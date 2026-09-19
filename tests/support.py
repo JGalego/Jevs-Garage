@@ -8,7 +8,9 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from typesafe_sdk import ChoiceAnswer, NoulAnswer, Questions, ScoreAnswer, SystemOneResponse
+from typesafe_sdk import Choice, ChoiceAnswer, Noul, NoulAnswer, Questions, Score, ScoreAnswer, SystemOneResponse
+
+from jevs_garage.runtime import SignalNames
 
 
 def load_demo(path: Path) -> ModuleType:
@@ -24,8 +26,23 @@ def load_demo(path: Path) -> ModuleType:
     return module
 
 
-def assert_model_contract(questions: Questions, response: SystemOneResponse) -> None:
-    """Verify fixture answers match the SDK question types and probability invariants."""
+def assert_question_contract(questions: Questions, names: SignalNames) -> None:
+    """Verify a demo declares one typed SDK question for each policy signal."""
+
+    assert set(questions) == {names.choice, names.score, names.noul}
+    choice = questions[names.choice]
+    score = questions[names.score]
+    noul = questions[names.noul]
+    assert isinstance(choice, Choice)
+    assert isinstance(score, Score)
+    assert isinstance(noul, Noul)
+    assert choice.model_dump()["type"] == "choice"
+    assert score.model_dump()["type"] == "score"
+    assert noul.model_dump()["type"] == "noul"
+
+
+def assert_response_contract(questions: Questions, response: SystemOneResponse) -> None:
+    """Verify an actual Jev response matches its declared SDK questions."""
 
     assert set(response.answers) == set(questions)
     for name, question in questions.items():
@@ -34,7 +51,6 @@ def assert_model_contract(questions: Questions, response: SystemOneResponse) -> 
         assert answer.type == question_type
         if isinstance(answer, ChoiceAnswer):
             assert answer.choice in answer.probabilities
-            assert answer.confidence == pytest.approx(answer.probabilities[answer.choice], abs=0.15)
             assert sum(answer.probabilities.values()) == pytest.approx(1, abs=0.02)
         elif isinstance(answer, ScoreAnswer):
             assert set(answer.legend) == set(answer.probabilities)

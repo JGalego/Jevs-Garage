@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/tiny-museum-curator/demo.py
-uv run python fun/tiny-museum-curator/demo.py --scenario uncertain
-uv run python fun/tiny-museum-curator/demo.py --live
 ```

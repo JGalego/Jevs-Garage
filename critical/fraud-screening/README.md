@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/fraud-screening/demo.py
-uv run python critical/fraud-screening/demo.py --scenario uncertain
-uv run python critical/fraud-screening/demo.py --live
 ```

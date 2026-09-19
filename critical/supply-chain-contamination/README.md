@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/supply-chain-contamination/demo.py
-uv run python critical/supply-chain-contamination/demo.py --scenario uncertain
-uv run python critical/supply-chain-contamination/demo.py --live
 ```

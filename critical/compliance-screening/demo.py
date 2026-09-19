@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Compliance screening desk"
 STATE = {
@@ -40,59 +45,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="concern", score="risk", noul="likely_match")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    concern = response.choices["concern"]
-    risk = response.scores["risk"]
-    match = response.nouls["likely_match"]
-    confidence = min(concern.confidence, risk.confidence, abs(match.noul - 0.5) * 2)
-    if confidence < 0.78:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.78:
         return PolicyDecision(
             action="Keep the payment pending and assign enhanced due diligence.",
             reason="Ambiguous identity evidence requires a human compliance decision.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="compliance analyst",
         )
-    if concern.choice in {"sanctions", "aml"} and risk.score >= 3 and match.noul >= 0.75:
+    if signals.choice in {"sanctions", "aml"} and signals.score >= 3 and signals.noul >= 0.75:
         return PolicyDecision(
             action="Recommend a compliance hold pending analyst adjudication.",
             reason="Concern, risk, and match probability cross the review threshold.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="compliance officer",
         )
-    if concern.choice == "none" and risk.score < 1.5 and match.noul <= 0.20:
+    if signals.choice == "none" and signals.score < 1.5 and signals.noul <= 0.20:
         return PolicyDecision(
             action="Recommend returning the payment to standard processing.",
             reason="All typed signals support a likely false positive.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="payment operations",
         )
     return PolicyDecision(
         action="Recommend standard compliance review before payment processing.",
         reason="The case is material but below the enhanced-review boundary.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="compliance analyst",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "AI output verification bay"
 STATE = {
@@ -36,59 +41,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="verdict", score="reliability", noul="citation_support")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    verdict = response.choices["verdict"]
-    reliability = response.scores["reliability"]
-    citation = response.nouls["citation_support"]
-    confidence = min(verdict.confidence, reliability.confidence, abs(citation.noul - 0.5) * 2)
-    if confidence < 0.80 or verdict.choice == "insufficient":
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.80 or signals.choice == "insufficient":
         return PolicyDecision(
             action="Keep the claim in draft and request a human fact check.",
             reason="Evidence support is too uncertain for publication.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="fact checker",
         )
-    if verdict.choice == "contradicted" or citation.noul <= 0.15 or reliability.score <= 1:
+    if signals.choice == "contradicted" or signals.noul <= 0.15 or signals.score <= 1:
         return PolicyDecision(
             action="Block publication of the claim and attach the conflicting source excerpt.",
             reason="High-confidence typed results show a direct evidence conflict.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="editor",
         )
-    if verdict.choice == "supported" and citation.noul >= 0.90 and reliability.score >= 3.5:
+    if signals.choice == "supported" and signals.noul >= 0.90 and signals.score >= 3.5:
         return PolicyDecision(
             action="Mark the claim verified for the editorial release queue.",
             reason="The claim passes all configured evidence thresholds.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="editorial workflow",
         )
     return PolicyDecision(
         action="Keep the claim in draft for standard source review.",
         reason="Evidence is plausible but below the verified-release boundary.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="editor",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

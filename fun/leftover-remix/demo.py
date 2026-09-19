@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Leftover remix station"
 STATE = {
@@ -32,27 +37,21 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="dish", score="ambition", noul="crispy")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    dish = response.choices["dish"]
-    ambition = response.scores["ambition"]
-    crispy = response.nouls["crispy"]
-    confidence = min(dish.confidence, ambition.confidence, abs(crispy.noul - 0.5) * 2)
-    if confidence < 0.60:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.60:
         return PolicyDecision(
             action="Build a warm snack plate and keep every component separate.",
             reason="No single remix has a reliable lead.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="home cook",
         )
@@ -62,20 +61,20 @@ def decide(response: SystemOneResponse) -> PolicyDecision:
         "flatbread": "Layer the potatoes, leek, and feta over toasted flatbread",
         "salad": "Warm the potatoes and leek, then toss with parsley and feta",
     }
-    texture = "; keep the edges deeply crisp" if crispy.noul >= 0.70 else ""
+    texture = "; keep the edges deeply crisp" if signals.noul >= 0.70 else ""
     return PolicyDecision(
-        action=f"{recipes[dish.choice]}{texture}.",
-        reason=f"The {dish.choice} format fits effort level {ambition.score:.1f}.",
-        confidence=confidence,
+        action=f"{recipes[signals.choice]}{texture}.",
+        reason=f"The {signals.choice} format fits effort level {signals.score:.1f}.",
+        confidence=signals.confidence,
         fallback=False,
         owner="home cook",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

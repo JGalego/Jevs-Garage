@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Outfit weather oracle"
 STATE = {
@@ -29,27 +34,21 @@ QUESTIONS: Questions = {
         criteria={"true": "Forecast and plans make rain protection useful.", "false": "Rain gear is unnecessary."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="outer_layer", score="warmth", noul="rain_ready")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    layer = response.choices["outer_layer"]
-    warmth = response.scores["warmth"]
-    rain = response.nouls["rain_ready"]
-    confidence = min(layer.confidence, warmth.confidence, abs(rain.noul - 0.5) * 2)
-    if confidence < 0.60:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.60:
         return PolicyDecision(
             action="Wear the fine-knit jumper and pack the shell in a small bag.",
             reason="A flexible layer handles the unresolved forecast split.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="wearer",
         )
@@ -59,20 +58,20 @@ def decide(response: SystemOneResponse) -> PolicyDecision:
         "overshirt": "overshirt over a breathable tee",
         "none": "breathable shirt with no outer layer",
     }
-    shoes = "waterproof shoes" if rain.noul >= 0.70 else "regular shoes"
+    shoes = "waterproof shoes" if signals.noul >= 0.70 else "regular shoes"
     return PolicyDecision(
-        action=f"Wear the {layers[layer.choice]} with {shoes}.",
-        reason=f"The closet map combines the selected layer with warmth {warmth.score:.1f}.",
-        confidence=confidence,
+        action=f"Wear the {layers[signals.choice]} with {shoes}.",
+        reason=f"The closet map combines the selected layer with warmth {signals.score:.1f}.",
+        confidence=signals.confidence,
         fallback=False,
         owner="wearer",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

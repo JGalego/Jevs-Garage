@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/leftover-remix/demo.py
-uv run python fun/leftover-remix/demo.py --scenario uncertain
-uv run python fun/leftover-remix/demo.py --live
 ```

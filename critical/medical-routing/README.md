@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/medical-routing/demo.py
-uv run python critical/medical-routing/demo.py --scenario uncertain
-uv run python critical/medical-routing/demo.py --live
 ```

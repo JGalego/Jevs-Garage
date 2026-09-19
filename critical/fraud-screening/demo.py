@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
 from jevs_garage.runtime import (
+    JevSignals,
     PolicyDecision,
-    demo_arguments,
-    fixture_response,
+    SignalNames,
     render_demo,
     require_live_api_key,
+    signals_from_response,
 )
 
 TITLE = "Fraud screening bay"
@@ -46,60 +45,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="risk_band", score="fraud_likelihood", noul="identity_anomaly")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    risk = response.choices["risk_band"]
-    score = response.scores["fraud_likelihood"]
-    anomaly = response.nouls["identity_anomaly"]
-    policy_confidence = min(risk.confidence, score.confidence, abs(anomaly.noul - 0.5) * 2)
-
-    if policy_confidence < 0.72 or 0.35 <= anomaly.noul <= 0.65:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.72 or 0.35 <= signals.noul <= 0.65:
         return PolicyDecision(
             action="Queue enhanced review; keep the transaction pending.",
             reason="At least one model signal is too uncertain for automatic routing.",
-            confidence=policy_confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="fraud analyst",
         )
-    if risk.choice == "high" and score.score >= 3 and anomaly.noul >= 0.70:
+    if signals.choice == "high" and signals.score >= 3 and signals.noul >= 0.70:
         return PolicyDecision(
             action="Place a reversible authorization hold and request analyst review.",
             reason="All three typed signals cross the high-risk policy thresholds.",
-            confidence=policy_confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="fraud operations",
         )
-    if risk.choice == "low" and score.score < 1.5 and anomaly.noul <= 0.25:
+    if signals.choice == "low" and signals.score < 1.5 and signals.noul <= 0.25:
         return PolicyDecision(
             action="Continue through the standard authorization path.",
             reason="Risk, score, and identity signals all remain below policy limits.",
-            confidence=policy_confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="payment authorization service",
         )
     return PolicyDecision(
         action="Request step-up verification before authorization.",
         reason="The evidence is credible but does not meet either automatic boundary.",
-        confidence=policy_confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="cardholder verification flow",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

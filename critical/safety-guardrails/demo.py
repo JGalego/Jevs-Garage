@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Safety guardrail bench"
 STATE = {
@@ -37,59 +42,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="response_mode", score="harm_severity", noul="policy_violation")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    mode = response.choices["response_mode"]
-    severity = response.scores["harm_severity"]
-    violation = response.nouls["policy_violation"]
-    confidence = min(mode.confidence, severity.confidence, abs(violation.noul - 0.5) * 2)
-    if confidence < 0.78:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.78:
         return PolicyDecision(
             action="Withhold the draft and request a safety-policy review.",
             reason="The release decision is ambiguous, so the safer branch wins.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="safety reviewer",
         )
-    if violation.noul >= 0.80 or severity.score >= 3 or mode.choice in {"refuse", "escalate"}:
+    if signals.noul >= 0.80 or signals.score >= 3 or signals.choice in {"refuse", "escalate"}:
         return PolicyDecision(
             action="Suppress the draft and return a safe, non-procedural alternative.",
             reason="At least one high-confidence safety boundary is crossed.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="response policy",
         )
-    if mode.choice == "transform_safe":
+    if signals.choice == "transform_safe":
         return PolicyDecision(
             action="Rewrite as general safety guidance, then re-run the guardrail.",
             reason="The content can be made useful without operational bypass details.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="safe transformation pipeline",
         )
     return PolicyDecision(
         action="Release the response through the normal moderation path.",
         reason="All typed signals remain below the configured safety limits.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="response gateway",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

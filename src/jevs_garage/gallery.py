@@ -17,15 +17,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol, cast
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import unquote, urlsplit
 
-from typesafe_sdk import ChoiceAnswer, NoulAnswer, ScoreAnswer, SystemOneResponse
+from typesafe_sdk import ChoiceAnswer, NoulAnswer, Questions, ScoreAnswer, SystemOneResponse, TypeSafeError
 
-from jevs_garage.runtime import PolicyDecision
+from jevs_garage.runtime import JevSignals, PolicyDecision, SignalNames, signals_from_response
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 GROUPS = ("critical", "fun")
-SCENARIOS = ("confident", "uncertain")
 
 
 class DemoModule(Protocol):
@@ -33,10 +32,12 @@ class DemoModule(Protocol):
 
     TITLE: str
     STATE: dict[str, Any]
+    QUESTIONS: Questions
+    SIGNALS: SignalNames
 
-    def evaluate(self, *, live: bool = False, scenario: str = "confident") -> SystemOneResponse: ...
+    def evaluate(self) -> SystemOneResponse: ...
 
-    def decide(self, response: SystemOneResponse) -> PolicyDecision: ...
+    def decide(self, signals: JevSignals) -> PolicyDecision: ...
 
 
 def discover_demo_paths(root: Path = REPOSITORY_ROOT) -> list[tuple[str, Path]]:
@@ -47,10 +48,8 @@ def discover_demo_paths(root: Path = REPOSITORY_ROOT) -> list[tuple[str, Path]]:
         group_root = root / group
         if not group_root.is_dir():
             continue
-        for demo_root in sorted(path for path in group_root.iterdir() if path.is_dir()):
-            demo_path = demo_root / "demo.py"
-            if demo_path.is_file() and (demo_root / "fixtures.json").is_file():
-                demos.append((group, demo_path))
+        demo_roots = sorted(path for path in group_root.iterdir() if path.is_dir())
+        demos.extend((group, demo_root / "demo.py") for demo_root in demo_roots if (demo_root / "demo.py").is_file())
     return demos
 
 
@@ -93,17 +92,27 @@ def _signal_payload(name: str, answer: ChoiceAnswer | ScoreAnswer | NoulAnswer) 
     }
 
 
-def collect_demos(scenario: str = "confident", root: Path = REPOSITORY_ROOT) -> list[dict[str, Any]]:
-    """Evaluate every demo against one offline fixture scenario for the web UI."""
-
-    if scenario not in SCENARIOS:
-        raise ValueError(f"Unknown scenario {scenario!r}")
+def collect_demos(root: Path = REPOSITORY_ROOT) -> list[dict[str, Any]]:
+    """Collect demo metadata without running a model or requiring an API key."""
 
     demos: list[dict[str, Any]] = []
     for group, path in discover_demo_paths(root):
         module = _load_demo(group, path)
-        response = module.evaluate(scenario=scenario)
-        decision = module.decide(response)
+        questions = []
+        for name, question in module.QUESTIONS.items():
+            if isinstance(question, dict):
+                question_type = question["type"]
+                instructions = question.get("instructions")
+            else:
+                question_type = question.type
+                instructions = question.instructions
+            questions.append(
+                {
+                    "name": name.replace("_", " "),
+                    "type": question_type,
+                    "instructions": instructions,
+                }
+            )
         demos.append(
             {
                 "id": f"{group}/{path.parent.name}",
@@ -112,13 +121,28 @@ def collect_demos(scenario: str = "confident", root: Path = REPOSITORY_ROOT) -> 
                 "title": module.TITLE,
                 "description": _description(path.with_name("README.md")),
                 "state": module.STATE,
-                "model": response.model,
-                "signals": [_signal_payload(name, answer) for name, answer in response.answers.items()],
-                "decision": asdict(decision),
+                "questions": questions,
                 "command": f"uv run python {group}/{path.parent.name}/demo.py",
             }
         )
     return demos
+
+
+def run_demo(demo_id: str, root: Path = REPOSITORY_ROOT) -> dict[str, Any]:
+    """Run one named demo against Jev and apply its deterministic policy."""
+
+    paths = {f"{group}/{path.parent.name}": (group, path) for group, path in discover_demo_paths(root)}
+    if demo_id not in paths:
+        raise KeyError(demo_id)
+    group, path = paths[demo_id]
+    module = _load_demo(group, path)
+    response = module.evaluate()
+    decision = module.decide(signals_from_response(response, module.SIGNALS))
+    return {
+        "model": response.model,
+        "signals": [_signal_payload(name, answer) for name, answer in response.answers.items()],
+        "decision": asdict(decision),
+    }
 
 
 INDEX_HTML = r"""<!doctype html>
@@ -202,7 +226,6 @@ INDEX_HTML = r"""<!doctype html>
       font-weight: 800;
     }
     .segmented button[aria-pressed="true"] { border-color: var(--ink); background: var(--yellow); }
-    .scenario button[aria-pressed="true"] { background: var(--blue); color: #fff; }
     .status { min-height: 22px; margin: 0 0 14px; color: var(--muted); font: 700 13px/1.4 "DejaVu Sans Mono", monospace; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); gap: 19px; }
     .demo-card {
@@ -227,7 +250,7 @@ INDEX_HTML = r"""<!doctype html>
     .eyebrow { color: var(--critical); font: 800 11px/1 "DejaVu Sans Mono", monospace; text-transform: uppercase; }
     .fun .eyebrow { color: var(--fun); }
     h2 { margin: 8px 0 0; font: 800 20px/1.2 "DejaVu Sans Mono", monospace; letter-spacing: 0; }
-    .confidence { white-space: nowrap; font: 800 12px/1 "DejaVu Sans Mono", monospace; }
+    .live-badge { padding: 5px 7px; color: #fff; background: var(--blue); white-space: nowrap; font: 800 11px/1 "DejaVu Sans Mono", monospace; }
     .card-body { padding-top: 13px; color: #494a45; font-size: 13px; line-height: 1.55; }
     .card-foot { padding-top: 15px; padding-bottom: 17px; display: grid; gap: 10px; }
     .meter { height: 8px; border: 1px solid var(--ink); background: #ddd8cc; }
@@ -266,6 +289,11 @@ INDEX_HTML = r"""<!doctype html>
     .policy p { margin: 5px 0; line-height: 1.5; }
     .policy-meta { color: var(--muted); font-size: 12px; }
     .command { grid-column: 1 / -1; padding: 12px 14px; background: #ded9cc; font: 12px/1.4 "DejaVu Sans Mono", monospace; overflow-x: auto; }
+    .run-area { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .run-button { padding: 11px 16px; border: 2px solid var(--ink); background: var(--yellow); color: var(--ink); box-shadow: 3px 3px 0 var(--ink); cursor: pointer; font-weight: 800; }
+    .run-button:disabled { cursor: wait; opacity: .65; }
+    .run-status { margin: 0; color: var(--muted); font: 700 12px/1.4 "DejaVu Sans Mono", monospace; }
+    [hidden] { display: none !important; }
     .empty { padding: 48px 0; color: var(--muted); font-weight: 700; }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; }
@@ -283,7 +311,7 @@ INDEX_HTML = r"""<!doctype html>
       <div class="brand-mark" aria-hidden="true">JG</div>
       <div><h1>Jev's Garage</h1><p class="subtitle">Typed decisions, deterministic guardrails, small useful machines.</p></div>
     </div>
-    <div class="counter"><span id="count">--</span> BAYS<br>OFFLINE FIXTURES</div>
+    <div class="counter"><span id="count">--</span> BAYS<br>LIVE ON DEMAND</div>
   </header>
   <main>
     <nav class="toolbar" aria-label="Gallery controls">
@@ -291,10 +319,6 @@ INDEX_HTML = r"""<!doctype html>
         <button type="button" data-group="all" aria-pressed="true">All bays</button>
         <button type="button" data-group="critical" aria-pressed="false">Critical</button>
         <button type="button" data-group="fun" aria-pressed="false">Fun</button>
-      </div>
-      <div class="segmented scenario" aria-label="Fixture scenario">
-        <button type="button" data-scenario="confident" aria-pressed="true">Confident</button>
-        <button type="button" data-scenario="uncertain" aria-pressed="false">Uncertain</button>
       </div>
     </nav>
     <p id="status" class="status" role="status">Opening the bay doors...</p>
@@ -307,16 +331,21 @@ INDEX_HTML = r"""<!doctype html>
     </div>
     <div class="detail">
       <section><h3 class="section-title">Sample state</h3><pre id="detail-state"></pre></section>
-      <section><h3 class="section-title">Typed Jev signals</h3><div id="detail-signals" class="signal-list"></div></section>
-      <section id="detail-policy" class="policy"><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
+      <section><h3 id="signals-heading" class="section-title">Question contract</h3><div id="detail-signals" class="signal-list"></div></section>
+      <section id="detail-policy" class="policy" hidden><h3 class="section-title">Deterministic policy</h3><strong id="detail-action"></strong><p id="detail-reason"></p><p id="detail-meta" class="policy-meta"></p></section>
+      <div class="run-area"><button id="run" class="run-button" type="button">Run Jev</button><p id="run-status" class="run-status">Uses TYPESAFE_API_KEY on this machine.</p></div>
       <div id="detail-command" class="command"></div>
     </div>
   </dialog>
   <script>
-    const view = { group: "all", scenario: "confident", demos: [] };
+    const view = { group: "all", demos: [], current: null };
     const grid = document.querySelector("#grid");
     const status = document.querySelector("#status");
     const detail = document.querySelector("#detail");
+    const signals = document.querySelector("#detail-signals");
+    const policy = document.querySelector("#detail-policy");
+    const runButton = document.querySelector("#run");
+    const runStatus = document.querySelector("#run-status");
 
     function element(tag, className, text) {
       const node = document.createElement(tag);
@@ -333,18 +362,22 @@ INDEX_HTML = r"""<!doctype html>
       });
     }
 
-    function openDetail(demo) {
-      document.querySelector("#detail-group").textContent = demo.group;
-      document.querySelector("#detail-title").textContent = demo.title;
-      document.querySelector("#detail-state").textContent = JSON.stringify(demo.state, null, 2);
-      document.querySelector("#detail-command").textContent = demo.command;
-      document.querySelector("#detail-action").textContent = demo.decision.action;
-      document.querySelector("#detail-reason").textContent = demo.decision.reason;
-      document.querySelector("#detail-meta").textContent = `Owner: ${demo.decision.owner} | policy confidence: ${percent(demo.decision.confidence)}`;
-      document.querySelector("#detail-policy").classList.toggle("fallback", demo.decision.fallback);
-      const signals = document.querySelector("#detail-signals");
+    function renderQuestions(questions) {
       signals.replaceChildren();
-      demo.signals.forEach((signal) => {
+      questions.forEach((question) => {
+        const row = element("div", "signal-row");
+        const top = element("div", "signal-top");
+        top.append(element("span", "signal-name", question.name), element("span", "signal-type", question.type));
+        const instructions = typeof question.instructions === "string" ? question.instructions : JSON.stringify(question.instructions);
+        row.append(top, element("div", "signal-value", instructions));
+        signals.append(row);
+      });
+    }
+
+    function renderResult(result) {
+      document.querySelector("#signals-heading").textContent = `Typed Jev signals / ${result.model}`;
+      signals.replaceChildren();
+      result.signals.forEach((signal) => {
         const row = element("div", "signal-row");
         const top = element("div", "signal-top");
         top.append(element("span", "signal-name", signal.name), element("span", "signal-type", signal.type));
@@ -355,14 +388,53 @@ INDEX_HTML = r"""<!doctype html>
         row.append(top, element("div", "signal-value", signal.value), meter);
         signals.append(row);
       });
+      document.querySelector("#detail-action").textContent = result.decision.action;
+      document.querySelector("#detail-reason").textContent = result.decision.reason;
+      document.querySelector("#detail-meta").textContent = `Owner: ${result.decision.owner} | policy confidence: ${percent(result.decision.confidence)}`;
+      policy.classList.toggle("fallback", result.decision.fallback);
+      policy.hidden = false;
+    }
+
+    function openDetail(demo) {
+      view.current = demo;
+      document.querySelector("#detail-group").textContent = demo.group;
+      document.querySelector("#detail-title").textContent = demo.title;
+      document.querySelector("#detail-state").textContent = JSON.stringify(demo.state, null, 2);
+      document.querySelector("#detail-command").textContent = demo.command;
+      document.querySelector("#signals-heading").textContent = "Question contract";
+      renderQuestions(demo.questions);
+      policy.hidden = true;
+      runButton.disabled = false;
+      runButton.textContent = "Run Jev";
+      runStatus.textContent = "Uses TYPESAFE_API_KEY on this machine.";
       detail.showModal();
+    }
+
+    async function runLive() {
+      if (!view.current) return;
+      runButton.disabled = true;
+      runButton.textContent = "Calling Jev...";
+      runStatus.textContent = "Waiting for a live TypeSafe response.";
+      try {
+        const response = await fetch(`/api/demos/${view.current.id}`, { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+        renderResult(payload);
+        runStatus.textContent = "Live result received. No side effect was executed.";
+        runButton.textContent = "Run again";
+      } catch (error) {
+        runStatus.textContent = `Live run failed: ${error.message}`;
+        runButton.textContent = "Try again";
+      } finally {
+        runButton.disabled = false;
+      }
     }
 
     function render() {
       const demos = view.demos.filter((demo) => view.group === "all" || demo.group === view.group);
       grid.replaceChildren();
       document.querySelector("#count").textContent = String(view.demos.length).padStart(2, "0");
-      status.textContent = `${demos.length} ${view.group === "all" ? "open" : view.group} bays | ${view.scenario} fixture`;
+      status.textContent = `${demos.length} ${view.group === "all" ? "open" : view.group} bays | live calls run on demand`;
       if (!demos.length) grid.append(element("p", "empty", "No bays match this filter."));
       demos.forEach((demo) => {
         const card = element("button", `demo-card ${demo.group}`);
@@ -372,15 +444,10 @@ INDEX_HTML = r"""<!doctype html>
         const head = element("div", "card-head");
         const titleWrap = element("div");
         titleWrap.append(element("span", "eyebrow", demo.group), element("h2", "", demo.title));
-        head.append(titleWrap, element("span", "confidence", percent(demo.decision.confidence)));
+        head.append(titleWrap, element("span", "live-badge", "LIVE"));
         const body = element("div", "card-body", demo.description);
         const foot = element("div", "card-foot");
-        const meter = element("div", "meter");
-        const fill = element("span");
-        fill.style.width = percent(demo.decision.confidence);
-        meter.append(fill);
-        const outcome = element("div", `outcome${demo.decision.fallback ? " fallback" : ""}`, demo.decision.fallback ? "SAFE FALLBACK" : demo.decision.action);
-        foot.append(meter, outcome);
+        foot.append(element("div", "outcome", "OPEN BAY >"));
         card.append(stripe, head, body, foot);
         card.addEventListener("click", () => openDetail(demo));
         grid.append(card);
@@ -388,9 +455,9 @@ INDEX_HTML = r"""<!doctype html>
     }
 
     async function load() {
-      status.textContent = "Loading offline fixtures...";
+      status.textContent = "Loading demo contracts...";
       try {
-        const response = await fetch(`/api/demos?scenario=${view.scenario}`);
+        const response = await fetch("/api/demos");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         view.demos = await response.json();
         render();
@@ -404,11 +471,7 @@ INDEX_HTML = r"""<!doctype html>
       setPressed("[data-group]", "group", view.group);
       render();
     }));
-    document.querySelectorAll("[data-scenario]").forEach((button) => button.addEventListener("click", () => {
-      view.scenario = button.dataset.scenario;
-      setPressed("[data-scenario]", "scenario", view.scenario);
-      load();
-    }));
+    runButton.addEventListener("click", runLive);
     document.querySelector("#close").addEventListener("click", () => detail.close());
     detail.addEventListener("click", (event) => { if (event.target === detail) detail.close(); });
     load();
@@ -429,8 +492,6 @@ class GalleryServer(ThreadingHTTPServer):
 
 
 class GalleryHandler(BaseHTTPRequestHandler):
-    """Serve the gallery shell, health check, and offline demo data."""
-
     server_version = "JevsGarage/1.0"
 
     def _write(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
@@ -454,17 +515,37 @@ class GalleryHandler(BaseHTTPRequestHandler):
             self._write(HTTPStatus.OK, b'{"status":"ok"}', "application/json")
             return
         if request.path == "/api/demos":
-            scenario = parse_qs(request.query).get("scenario", ["confident"])[0]
-            try:
-                root = cast(GalleryServer, self.server).gallery_root
-                body = json.dumps(collect_demos(scenario, root), ensure_ascii=False).encode()
-            except ValueError as error:
-                body = json.dumps({"error": str(error)}).encode()
-                self._write(HTTPStatus.BAD_REQUEST, body, "application/json")
-                return
+            root = cast(GalleryServer, self.server).gallery_root
+            body = json.dumps(collect_demos(root), ensure_ascii=False).encode()
             self._write(HTTPStatus.OK, body, "application/json")
             return
         self._write(HTTPStatus.NOT_FOUND, b'{"error":"not found"}', "application/json")
+
+    def do_POST(self) -> None:  # noqa: N802
+        request = urlsplit(self.path)
+        prefix = "/api/demos/"
+        if not request.path.startswith(prefix):
+            self._write(HTTPStatus.NOT_FOUND, b'{"error":"not found"}', "application/json")
+            return
+
+        demo_id = unquote(request.path.removeprefix(prefix)).strip("/")
+        root = cast(GalleryServer, self.server).gallery_root
+        try:
+            payload = run_demo(demo_id, root)
+        except KeyError:
+            self._write(HTTPStatus.NOT_FOUND, b'{"error":"unknown demo"}', "application/json")
+            return
+        except SystemExit as error:
+            body = json.dumps({"error": str(error)}).encode()
+            self._write(HTTPStatus.SERVICE_UNAVAILABLE, body, "application/json")
+            return
+        except TypeSafeError as error:
+            body = json.dumps({"error": f"TypeSafe API call failed: {error}"}).encode()
+            self._write(HTTPStatus.BAD_GATEWAY, body, "application/json")
+            return
+
+        body = json.dumps(payload, ensure_ascii=False).encode()
+        self._write(HTTPStatus.OK, body, "application/json")
 
     def log_message(self, format: str, *args: object) -> None:
         return

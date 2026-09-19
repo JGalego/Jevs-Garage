@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/playlist-pilot/demo.py
-uv run python fun/playlist-pilot/demo.py --scenario uncertain
-uv run python fun/playlist-pilot/demo.py --live
 ```

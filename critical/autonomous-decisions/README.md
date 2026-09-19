@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/autonomous-decisions/demo.py
-uv run python critical/autonomous-decisions/demo.py --scenario uncertain
-uv run python critical/autonomous-decisions/demo.py --live
 ```

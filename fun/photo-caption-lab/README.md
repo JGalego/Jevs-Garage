@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/photo-caption-lab/demo.py
-uv run python fun/photo-caption-lab/demo.py --scenario uncertain
-uv run python fun/photo-caption-lab/demo.py --live
 ```

@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/snack-matchmaker/demo.py
-uv run python fun/snack-matchmaker/demo.py --scenario uncertain
-uv run python fun/snack-matchmaker/demo.py --live
 ```

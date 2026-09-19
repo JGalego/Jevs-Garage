@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Snack matchmaker"
 STATE = {
@@ -29,27 +34,21 @@ QUESTIONS: Questions = {
         criteria={"true": "Heat complements the stated craving.", "false": "Heat would fight the stated craving."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="flavor", score="adventure", noul="spice_welcome")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    flavor = response.choices["flavor"]
-    adventure = response.scores["adventure"]
-    spice = response.nouls["spice_welcome"]
-    confidence = min(flavor.confidence, adventure.confidence, abs(spice.noul - 0.5) * 2)
-    if confidence < 0.62:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.62:
         return PolicyDecision(
             action="Build a three-bowl tasting flight and let the human choose.",
             reason="The craving signals are charmingly indecisive.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="snack seeker",
         )
@@ -59,20 +58,20 @@ def decide(response: SystemOneResponse) -> PolicyDecision:
         "tangy": "Toss popcorn with lime and toasted sesame",
         "smoky": "Toast sesame popcorn with a smoky finish",
     }
-    heat = " and a pinch of chili" if spice.noul >= 0.70 else ""
+    heat = " and a pinch of chili" if signals.noul >= 0.70 else ""
     return PolicyDecision(
-        action=f"{menu[flavor.choice]}{heat}.",
-        reason=f"The {flavor.choice} profile won at adventure level {adventure.score:.1f}.",
-        confidence=confidence,
+        action=f"{menu[signals.choice]}{heat}.",
+        reason=f"The {signals.choice} profile won at adventure level {signals.score:.1f}.",
+        confidence=signals.confidence,
         fallback=False,
         owner="kitchen human",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

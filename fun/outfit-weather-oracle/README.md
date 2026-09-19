@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python fun/outfit-weather-oracle/demo.py
-uv run python fun/outfit-weather-oracle/demo.py --scenario uncertain
-uv run python fun/outfit-weather-oracle/demo.py --live
 ```

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Movie night referee"
 STATE = {
@@ -33,43 +38,37 @@ QUESTIONS: Questions = {
         criteria={"true": "A clear overlap exists.", "false": "Preferences remain too divided."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="genre", score="intensity", noul="group_fit")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    genre = response.choices["genre"]
-    intensity = response.scores["intensity"]
-    fit = response.nouls["group_fit"]
-    confidence = min(genre.confidence, intensity.confidence, abs(fit.noul - 0.5) * 2)
-    if confidence < 0.60 or fit.noul < 0.70:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.60 or signals.noul < 0.70:
         return PolicyDecision(
             action="Create a three-title shortlist and settle it with one ranked vote.",
             reason="The group overlap is not decisive enough for a single pick.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="movie-night group",
         )
     return PolicyDecision(
-        action=f"Pick a sub-115-minute {genre.choice} at intensity {intensity.score:.1f}, with no graphic gore.",
+        action=f"Pick a sub-115-minute {signals.choice} at intensity {signals.score:.1f}, with no graphic gore.",
         reason="The house rules convert the typed overlap into a bounded recommendation.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="remote holder",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Cold-chain inspection bay"
 STATE = {
@@ -38,59 +43,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="hazard", score="severity", noul="lot_affected")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    hazard = response.choices["hazard"]
-    severity = response.scores["severity"]
-    affected = response.nouls["lot_affected"]
-    confidence = min(hazard.confidence, severity.confidence, abs(affected.noul - 0.5) * 2)
-    if confidence < 0.78 or hazard.choice == "sensor_fault":
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.78 or signals.choice == "sensor_fault":
         return PolicyDecision(
             action="Keep the lot segregated and request logger validation plus lab review.",
             reason="Uncertain evidence cannot support release or disposal.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="quality assurance lead",
         )
-    if affected.noul >= 0.80 and severity.score >= 3:
+    if signals.noul >= 0.80 and signals.score >= 3:
         return PolicyDecision(
             action="Recommend quarantining the lot pending laboratory disposition.",
             reason="Hazard, severity, and lot-impact signals cross the quarantine threshold.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="quality assurance lead",
         )
-    if severity.score >= 2:
+    if signals.score >= 2:
         return PolicyDecision(
             action="Recommend representative sampling before any release decision.",
             reason="The excursion is material but below the direct quarantine threshold.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="quality laboratory",
         )
     return PolicyDecision(
         action="Recommend release through the standard quality sign-off.",
         reason="All typed signals remain within the release policy band.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="quality assurance lead",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

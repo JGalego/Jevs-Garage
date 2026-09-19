@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/compliance-screening/demo.py
-uv run python critical/compliance-screening/demo.py --scenario uncertain
-uv run python critical/compliance-screening/demo.py --live
 ```

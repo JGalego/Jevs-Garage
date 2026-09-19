@@ -13,6 +13,4 @@ flowchart LR
 
 ```bash
 uv run python critical/safety-guardrails/demo.py
-uv run python critical/safety-guardrails/demo.py --scenario uncertain
-uv run python critical/safety-guardrails/demo.py --live
 ```

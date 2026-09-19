@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Wildfire escalation map"
 STATE = {
@@ -41,59 +46,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="spread_behavior", score="threat_level", noul="settlement_threat")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    spread = response.choices["spread_behavior"]
-    threat = response.scores["threat_level"]
-    settlement = response.nouls["settlement_threat"]
-    confidence = min(spread.confidence, threat.confidence, abs(settlement.noul - 0.5) * 2)
-    if confidence < 0.80:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.80:
         return PolicyDecision(
             action="Escalate the observations to the incident commander for immediate interpretation.",
             reason="Uncertain fire behavior cannot support a public-action recommendation.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="incident commander",
         )
-    if spread.choice in {"crown", "extreme"} and threat.score >= 3 and settlement.noul >= 0.80:
+    if signals.choice in {"crown", "extreme"} and signals.score >= 3 and signals.noul >= 0.80:
         return PolicyDecision(
             action="Recommend evacuation-warning review by the authorized incident command.",
             reason="Spread, threat, and exposure all cross the escalation threshold.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="county incident commander",
         )
-    if threat.score >= 2:
+    if signals.score >= 2:
         return PolicyDecision(
             action="Recommend increased field observation and resource-readiness review.",
             reason="Conditions are elevated but below the public-warning threshold.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="operations section chief",
         )
     return PolicyDecision(
         action="Continue routine monitoring under the current incident plan.",
         reason="The typed result remains below escalation thresholds.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="planning section",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Tabletop sidekick forge"
 STATE = {
@@ -29,27 +34,21 @@ QUESTIONS: Questions = {
         criteria={"true": "A complementary gap is clear.", "false": "The party needs are ambiguous."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="role", score="chaos", noul="team_fit")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    role = response.choices["role"]
-    chaos = response.scores["chaos"]
-    fit = response.nouls["team_fit"]
-    confidence = min(role.confidence, chaos.confidence, abs(fit.noul - 0.5) * 2)
-    if confidence < 0.62 or fit.noul < 0.70:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.62 or signals.noul < 0.70:
         return PolicyDecision(
             action="Lay out three character cards and let the table vote.",
             reason="The missing party role is not clear enough for one pick.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="game master",
         )
@@ -60,18 +59,18 @@ def decide(response: SystemOneResponse) -> PolicyDecision:
         "trickster": "Nix, licensed distraction",
     }
     return PolicyDecision(
-        action=f"Add {characters[role.choice]} at chaos level {chaos.score:.1f}.",
+        action=f"Add {characters[signals.choice]} at chaos level {signals.score:.1f}.",
         reason="The character shelf maps the typed party gap to a bounded option.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="game master",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

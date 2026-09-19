@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Emergency dispatch board"
 STATE = {
@@ -38,59 +43,53 @@ QUESTIONS: Questions = {
         },
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="incident_type", score="response_priority", noul="immediate_threat")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    incident = response.choices["incident_type"]
-    priority = response.scores["response_priority"]
-    threat = response.nouls["immediate_threat"]
-    confidence = min(incident.confidence, priority.confidence, abs(threat.noul - 0.5) * 2)
-    if confidence < 0.82 or incident.choice == "unknown":
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.82 or signals.choice == "unknown":
         return PolicyDecision(
             action="Keep the caller connected and transfer classification to a certified dispatcher.",
             reason="Uncertain incident data cannot drive a resource recommendation.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="certified dispatcher",
         )
-    if threat.noul >= 0.85 and priority.score >= 3:
+    if signals.noul >= 0.85 and signals.score >= 3:
         return PolicyDecision(
             action="Present a Priority 1 response recommendation to the dispatcher; do not auto-dispatch.",
             reason="Incident, priority, and immediate-threat signals agree at high confidence.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="certified dispatcher",
         )
-    if priority.score >= 2:
+    if signals.score >= 2:
         return PolicyDecision(
             action="Present an urgent response recommendation for dispatcher confirmation.",
             reason="The report crosses the urgent review threshold but not Priority 1.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=False,
             owner="certified dispatcher",
         )
     return PolicyDecision(
         action="Place the call in the standard dispatch review queue.",
         reason="The typed signals remain below urgent policy thresholds.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="dispatch queue",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="CRITICAL", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

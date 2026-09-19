@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from typesafe_sdk import Choice, Noul, Questions, Score, SystemOneResponse, TypeSafeClient
 
-from jevs_garage.runtime import PolicyDecision, demo_arguments, fixture_response, render_demo, require_live_api_key
+from jevs_garage.runtime import (
+    JevSignals,
+    PolicyDecision,
+    SignalNames,
+    render_demo,
+    require_live_api_key,
+    signals_from_response,
+)
 
 TITLE = "Playlist pilot"
 STATE = {
@@ -29,44 +34,38 @@ QUESTIONS: Questions = {
         criteria={"true": "Lyrics would compete with the task.", "false": "Lyrics fit the moment."},
     ),
 }
-FIXTURES = Path(__file__).with_name("fixtures.json")
+SIGNALS = SignalNames(choice="mood", score="energy", noul="lyric_free")
 
 
-def evaluate(*, live: bool = False, scenario: str = "confident") -> SystemOneResponse:
-    if not live:
-        return fixture_response(FIXTURES, scenario)
+def evaluate() -> SystemOneResponse:
     require_live_api_key()
     with TypeSafeClient() as client:
         return client.system_one(state=STATE, questions=QUESTIONS)
 
 
-def decide(response: SystemOneResponse) -> PolicyDecision:
-    mood = response.choices["mood"]
-    energy = response.scores["energy"]
-    instrumental = response.nouls["lyric_free"]
-    confidence = min(mood.confidence, energy.confidence, abs(instrumental.noul - 0.5) * 2)
-    if confidence < 0.62:
+def decide(signals: JevSignals) -> PolicyDecision:
+    if signals.confidence < 0.62:
         return PolicyDecision(
             action="Offer four five-minute mood samplers instead of choosing a queue.",
             reason="No single listening mode has a dependable lead.",
-            confidence=confidence,
+            confidence=signals.confidence,
             fallback=True,
             owner="listener",
         )
-    vocal_mode = "instrumental" if instrumental.noul >= 0.70 else "vocal-friendly"
+    vocal_mode = "instrumental" if signals.noul >= 0.70 else "vocal-friendly"
     return PolicyDecision(
-        action=f"Queue the {mood.choice} circuit at energy {energy.score:.1f}, {vocal_mode} mode.",
+        action=f"Queue the {signals.choice} circuit at energy {signals.score:.1f}, {vocal_mode} mode.",
         reason="The playlist recipe is selected only from the typed result.",
-        confidence=confidence,
+        confidence=signals.confidence,
         fallback=False,
         owner="music player",
     )
 
 
 def main() -> None:
-    args = demo_arguments(__doc__ or TITLE)
-    response = evaluate(live=args.live, scenario=args.scenario)
-    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decide(response))
+    response = evaluate()
+    decision = decide(signals_from_response(response, SIGNALS))
+    render_demo(title=TITLE, group="FUN", state=STATE, response=response, decision=decision)
 
 
 if __name__ == "__main__":

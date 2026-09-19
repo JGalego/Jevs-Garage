@@ -14,15 +14,8 @@ def test_gallery_discovers_every_demo() -> None:
     assert len(demos) == 22
     assert groups.count("critical") == 12
     assert groups.count("fun") == 10
-    assert all(not demo["decision"]["fallback"] for demo in demos)
-    assert all(len(demo["signals"]) == 3 for demo in demos)
-
-
-def test_uncertain_gallery_uses_every_fallback() -> None:
-    demos = collect_demos("uncertain")
-
-    assert len(demos) == 22
-    assert all(demo["decision"]["fallback"] for demo in demos)
+    assert all(len(demo["questions"]) == 3 for demo in demos)
+    assert all("signals" not in demo and "decision" not in demo for demo in demos)
 
 
 def test_gallery_shell_and_api_are_served() -> None:
@@ -34,7 +27,7 @@ def test_gallery_shell_and_api_are_served() -> None:
     try:
         with urlopen(f"http://{host}:{port}/", timeout=2) as response:  # noqa: S310
             html = response.read().decode()
-        with urlopen(f"http://{host}:{port}/api/demos?scenario=uncertain", timeout=2) as response:  # noqa: S310
+        with urlopen(f"http://{host}:{port}/api/demos", timeout=2) as response:  # noqa: S310
             demos = json.loads(response.read())
     finally:
         server.shutdown()
@@ -44,4 +37,4 @@ def test_gallery_shell_and_api_are_served() -> None:
     assert html == INDEX_HTML
     assert "Jev's Garage" in html
     assert len(demos) == 22
-    assert demos[0]["decision"]["fallback"] is True
+    assert demos[0]["questions"][0]["type"] in {"choice", "score", "noul"}

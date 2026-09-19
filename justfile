@@ -31,19 +31,15 @@ test *args:
 # Run live API tests after loading TYPESAFE_API_KEY from .env.
 test-live *args:
     @test -n "${TYPESAFE_API_KEY:-}" || { echo "TYPESAFE_API_KEY is missing; add it to .env." >&2; exit 1; }
-    uv run pytest -m live {{args}}
+    uv run pytest --live {{args}}
 
 # Run formatting, linting, types, and all offline tests.
 check: format-check lint typecheck test
 
-# Run one demo from its repo-relative folder with an offline fixture.
-demo demo="critical/fraud-screening" scenario="confident":
-    uv run python "{{demo}}/demo.py" --scenario "{{scenario}}"
-
 # Run one demo against the live TypeSafe API.
-demo-live demo="critical/fraud-screening":
+demo demo="critical/fraud-screening":
     @test -n "${TYPESAFE_API_KEY:-}" || { echo "TYPESAFE_API_KEY is missing; add it to .env." >&2; exit 1; }
-    uv run python "{{demo}}/demo.py" --live
+    uv run python "{{demo}}/demo.py"
 
 # Launch the local visual gallery; pass `--no-browser --port 8080` for options.
 gallery *args:

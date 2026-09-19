@@ -1,12 +1,9 @@
-"""Small shared helpers for loading fixtures and rendering demo results."""
+"""Small shared helpers for typed policy inputs and terminal rendering."""
 
 from __future__ import annotations
 
-import argparse
-import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -15,7 +12,7 @@ from rich.json import JSON
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from typesafe_sdk import Answer, ChoiceAnswer, NoulAnswer, ScoreAnswer, SystemOneResponse, Usage
+from typesafe_sdk import ChoiceAnswer, NoulAnswer, ScoreAnswer, SystemOneResponse
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,36 +26,44 @@ class PolicyDecision:
     owner: str
 
 
-def fixture_response(path: Path, scenario: str = "confident") -> SystemOneResponse:
-    """Load one mocked SDK response from a demo's offline fixture file."""
+@dataclass(frozen=True, slots=True)
+class SignalNames:
+    """Question names used to extract one choice, score, and noul."""
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if scenario not in payload:
-        available = ", ".join(sorted(payload))
-        raise ValueError(f"Unknown fixture scenario {scenario!r}; choose one of: {available}")
+    choice: str
+    score: str
+    noul: str
 
-    fixture = payload[scenario]
-    answers: dict[str, Answer] = {}
-    for name, raw_answer in fixture["answers"].items():
-        answer_type = raw_answer.get("type")
-        if answer_type == "choice":
-            answers[name] = ChoiceAnswer.model_validate(raw_answer)
-        elif answer_type == "noul":
-            answers[name] = NoulAnswer.model_validate(raw_answer)
-        elif answer_type == "score":
-            normalized = {
-                **raw_answer,
-                "legend": {int(key): value for key, value in raw_answer["legend"].items()},
-                "probabilities": {int(key): value for key, value in raw_answer["probabilities"].items()},
-            }
-            answers[name] = ScoreAnswer.model_validate(normalized)
-        else:
-            raise ValueError(f"Unsupported fixture answer type {answer_type!r} for {name!r}")
 
-    return SystemOneResponse(
-        model=fixture["model"],
-        usage=Usage.model_validate(fixture.get("usage", {})),
-        answers=answers,
+@dataclass(frozen=True, slots=True)
+class JevSignals:
+    """Plain values consumed by a demo's deterministic policy."""
+
+    choice: str
+    choice_confidence: float
+    score: float
+    score_confidence: float
+    noul: float
+
+    @property
+    def confidence(self) -> float:
+        """Conservative certainty across all three signals."""
+
+        return min(self.choice_confidence, self.score_confidence, abs(self.noul - 0.5) * 2)
+
+
+def signals_from_response(response: SystemOneResponse, names: SignalNames) -> JevSignals:
+    """Extract policy inputs from a real SDK response."""
+
+    choice = response.choices[names.choice]
+    score = response.scores[names.score]
+    noul = response.nouls[names.noul]
+    return JevSignals(
+        choice=choice.choice,
+        choice_confidence=choice.confidence,
+        score=score.score,
+        score_confidence=score.confidence,
+        noul=noul.noul,
     )
 
 
@@ -68,20 +73,6 @@ def require_live_api_key() -> None:
     load_dotenv()
     if not os.getenv("TYPESAFE_API_KEY"):
         raise SystemExit("TYPESAFE_API_KEY is missing. Copy .env.example to .env and add your key.")
-
-
-def demo_arguments(description: str) -> argparse.Namespace:
-    """Parse the consistent two-option CLI used by every tiny demo."""
-
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--live", action="store_true", help="Call Jev instead of loading an offline fixture.")
-    parser.add_argument(
-        "--scenario",
-        choices=("confident", "uncertain"),
-        default="confident",
-        help="Offline fixture to display (ignored with --live).",
-    )
-    return parser.parse_args()
 
 
 def _answer_rows(response: SystemOneResponse) -> list[tuple[str, str, float]]:
